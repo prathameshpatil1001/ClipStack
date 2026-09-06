@@ -1,0 +1,43 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  build-and-test:
+    name: Build and test
+    runs-on: macos-15
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Show toolchain
+        run: xcodebuild -version
+
+      - name: Run logic tests
+        run: ./Scripts/test.sh
+
+      # Signing is skipped: CI has no certificate, and ClipStack needs no
+      # entitlements to compile. This verifies the code builds, not that it ships.
+      - name: Build (Debug)
+        run: |
+          xcodebuild \
+            -project ClipStack.xcodeproj \
+            -scheme ClipStack \
+            -configuration Debug \
+            -destination 'platform=macOS' \
+            CODE_SIGNING_ALLOWED=NO \
+            build
+
+      - name: Build (Release)
+        run: |
+          xcodebuild \
+            -project ClipStack.xcodeproj \
+            -scheme ClipStack \
+            -configuration Release \
+            -destination 'platform=macOS' \
+            CODE_SIGNING_ALLOWED=NO \
+            build

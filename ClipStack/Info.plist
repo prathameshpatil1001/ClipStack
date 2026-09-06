@@ -1,0 +1,55 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>CFBundleDevelopmentRegion</key>
+	<string>$(DEVELOPMENT_LANGUAGE)</string>
+	<key>CFBundleExecutable</key>
+	<string>$(EXECUTABLE_NAME)</string>
+	<key>CFBundleIdentifier</key>
+	<string>$(PRODUCT_BUNDLE_IDENTIFIER)</string>
+	<key>CFBundleInfoDictionaryVersion</key>
+	<string>6.0</string>
+	<key>CFBundleName</key>
+	<string>$(PRODUCT_NAME)</string>
+	<key>CFBundleDisplayName</key>
+	<string>ClipStack</string>
+	<key>CFBundlePackageType</key>
+	<string>APPL</string>
+	<key>CFBundleShortVersionString</key>
+	<string>$(MARKETING_VERSION)</string>
+	<key>CFBundleVersion</key>
+	<string>$(CURRENT_PROJECT_VERSION)</string>
+	<key>LSMinimumSystemVersion</key>
+	<string>$(MACOSX_DEPLOYMENT_TARGET)</string>
+
+	<!-- ClipStack is a menu bar utility: no Dock icon, no main window, no menu bar
+	     application menu. LSUIElement keeps the process out of the Dock and the
+	     Cmd-Tab switcher while still allowing it to become the active app when the
+	     Spotlight-style panel needs keyboard focus. -->
+	<key>LSUIElement</key>
+	<true/>
+
+	<!-- Shown by the system in the Accessibility permission prompt / Privacy pane.
+	     ClipStack needs Accessibility to (a) observe the Cmd+C keystroke with a
+	     CGEventTap while Stack Mode is on and (b) synthesize Cmd+V for auto-paste. -->
+	<key>NSAccessibilityUsageDescription</key>
+	<string>ClipStack needs Accessibility access to notice when you press Cmd+C while Stack Mode is on, and to paste the assembled stack into the app you are working in.</string>
+
+	<!-- Auto-paste synthesizes a Cmd+V keystroke into the frontmost app. macOS
+	     surfaces this to the user as input monitoring / automation of other apps. -->
+	<key>NSAppleEventsUsageDescription</key>
+	<string>ClipStack sends a paste keystroke to the app you are working in when Paste Stack is set to auto-paste.</string>
+	<key>NSInputMonitoringUsageDescription</key>
+	<string>ClipStack watches for the Cmd+C keystroke so it can add what you copy to the current stack.</string>
+
+	<key>NSHumanReadableCopyright</key>
+	<string></string>
+	<key>NSPrincipalClass</key>
+	<string>NSApplication</string>
+	<key>NSSupportsAutomaticTermination</key>
+	<false/>
+	<key>NSSupportsSuddenTermination</key>
+	<false/>
+</dict>
+</plist>

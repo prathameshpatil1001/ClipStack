@@ -1,0 +1,41 @@
+# ── macOS ───────────────────────────────────────────────────────────────────
+.DS_Store
+.AppleDouble
+.LSOverride
+Icon?
+._*
+
+# ── Xcode ───────────────────────────────────────────────────────────────────
+build/
+DerivedData/
+*.moved-aside
+*.pbxuser
+!default.pbxuser
+*.mode1v3
+!default.mode1v3
+*.mode2v3
+!default.mode2v3
+*.perspectivev3
+!default.perspectivev3
+
+# Per-user Xcode state: window layout, breakpoints, which scheme was last run.
+# Shared schemes live in xcshareddata and are intentionally NOT ignored.
+xcuserdata/
+*.xcscmblueprint
+*.xccheckout
+
+# ── Swift Package Manager ───────────────────────────────────────────────────
+.build/
+.swiftpm/
+Package.resolved
+
+# ── Signing ─────────────────────────────────────────────────────────────────
+# Never commit provisioning profiles or certificates.
+*.mobileprovision
+*.provisionprofile
+*.p12
+*.cer
+
+# ── Misc ────────────────────────────────────────────────────────────────────
+*.log
+.env

@@ -7,13 +7,26 @@
 	objects = {
 
 /* Begin PBXFileReference section */
-		05194762304B1B2600FDAC57 /* ClipEasy.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = ClipEasy.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		05194762304B1B2600FDAC57 /* ClipStack.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = ClipStack.app; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
+/* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
+		05194780304B1B2600FDAC57 /* Exceptions for "ClipStack" folder in "ClipStack" target */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				Info.plist,
+			);
+			target = 05194761304B1B2600FDAC57 /* ClipStack */;
+		};
+/* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
+
 /* Begin PBXFileSystemSynchronizedRootGroup section */
-		05194764304B1B2600FDAC57 /* ClipEasy */ = {
+		05194764304B1B2600FDAC57 /* ClipStack */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
-			path = ClipEasy;
+			exceptions = (
+				05194780304B1B2600FDAC57 /* Exceptions for "ClipStack" folder in "ClipStack" target */,
+			);
+			path = ClipStack;
 			sourceTree = "<group>";
 		};
 /* End PBXFileSystemSynchronizedRootGroup section */
@@ -32,7 +45,7 @@
 		05194759304B1B2600FDAC57 = {
 			isa = PBXGroup;
 			children = (
-				05194764304B1B2600FDAC57 /* ClipEasy */,
+				05194764304B1B2600FDAC57 /* ClipStack */,
 				05194763304B1B2600FDAC57 /* Products */,
 			);
 			sourceTree = "<group>";
@@ -40,7 +53,7 @@
 		05194763304B1B2600FDAC57 /* Products */ = {
 			isa = PBXGroup;
 			children = (
-				05194762304B1B2600FDAC57 /* ClipEasy.app */,
+				05194762304B1B2600FDAC57 /* ClipStack.app */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -48,9 +61,9 @@
 /* End PBXGroup section */
 
 /* Begin PBXNativeTarget section */
-		05194761304B1B2600FDAC57 /* ClipEasy */ = {
+		05194761304B1B2600FDAC57 /* ClipStack */ = {
 			isa = PBXNativeTarget;
-			buildConfigurationList = 0519476D304B1B2700FDAC57 /* Build configuration list for PBXNativeTarget "ClipEasy" */;
+			buildConfigurationList = 0519476D304B1B2700FDAC57 /* Build configuration list for PBXNativeTarget "ClipStack" */;
 			buildPhases = (
 				0519475E304B1B2600FDAC57 /* Sources */,
 				0519475F304B1B2600FDAC57 /* Frameworks */,
@@ -61,13 +74,13 @@
 			dependencies = (
 			);
 			fileSystemSynchronizedGroups = (
-				05194764304B1B2600FDAC57 /* ClipEasy */,
+				05194764304B1B2600FDAC57 /* ClipStack */,
 			);
-			name = ClipEasy;
+			name = ClipStack;
 			packageProductDependencies = (
 			);
-			productName = ClipEasy;
-			productReference = 05194762304B1B2600FDAC57 /* ClipEasy.app */;
+			productName = ClipStack;
+			productReference = 05194762304B1B2600FDAC57 /* ClipStack.app */;
 			productType = "com.apple.product-type.application";
 		};
 /* End PBXNativeTarget section */
@@ -85,7 +98,7 @@
 					};
 				};
 			};
-			buildConfigurationList = 0519475D304B1B2600FDAC57 /* Build configuration list for PBXProject "ClipEasy" */;
+			buildConfigurationList = 0519475D304B1B2600FDAC57 /* Build configuration list for PBXProject "ClipStack" */;
 			developmentRegion = en;
 			hasScannedForEncodings = 0;
 			knownRegions = (
@@ -99,7 +112,7 @@
 			projectDirPath = "";
 			projectRoot = "";
 			targets = (
-				05194761304B1B2600FDAC57 /* ClipEasy */,
+				05194761304B1B2600FDAC57 /* ClipStack */,
 			);
 		};
 /* End PBXProject section */
@@ -179,7 +192,7 @@
 				GCC_WARN_UNUSED_FUNCTION = YES;
 				GCC_WARN_UNUSED_VARIABLE = YES;
 				LOCALIZATION_PREFERS_STRING_CATALOGS = YES;
-				MACOSX_DEPLOYMENT_TARGET = 26.5;
+				MACOSX_DEPLOYMENT_TARGET = 13.0;
 				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
 				MTL_FAST_MATH = YES;
 				ONLY_ACTIVE_ARCH = YES;
@@ -237,7 +250,7 @@
 				GCC_WARN_UNUSED_FUNCTION = YES;
 				GCC_WARN_UNUSED_VARIABLE = YES;
 				LOCALIZATION_PREFERS_STRING_CATALOGS = YES;
-				MACOSX_DEPLOYMENT_TARGET = 26.5;
+				MACOSX_DEPLOYMENT_TARGET = 13.0;
 				MTL_ENABLE_DEBUG_INFO = NO;
 				MTL_FAST_MATH = YES;
 				SDKROOT = macosx;
@@ -250,28 +263,32 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				"CODE_SIGN_IDENTITY[sdk=macosx*]" = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = C2N3Q4846H;
-				ENABLE_APP_SANDBOX = YES;
+				ENABLE_APP_SANDBOX = NO;
 				ENABLE_HARDENED_RUNTIME = YES;
 				ENABLE_PREVIEWS = YES;
-				ENABLE_USER_SELECTED_FILES = readonly;
-				GENERATE_INFOPLIST_FILE = YES;
-				INFOPLIST_KEY_NSHumanReadableCopyright = "";
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = ClipStack/Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/../Frameworks",
 				);
 				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = com.prathamesh.ClipEasy;
+				OTHER_LDFLAGS = (
+					"-weak_framework",
+					SwiftData,
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.prathamesh.ClipStack;
 				PRODUCT_NAME = "$(TARGET_NAME)";
-				REGISTER_APP_GROUPS = YES;
 				STRING_CATALOG_GENERATE_SYMBOLS = YES;
 				SWIFT_APPROACHABLE_CONCURRENCY = YES;
 				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
 				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_STRICT_CONCURRENCY = minimal;
 				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
 				SWIFT_VERSION = 5.0;
 			};
@@ -282,28 +299,32 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				"CODE_SIGN_IDENTITY[sdk=macosx*]" = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = C2N3Q4846H;
-				ENABLE_APP_SANDBOX = YES;
+				ENABLE_APP_SANDBOX = NO;
 				ENABLE_HARDENED_RUNTIME = YES;
 				ENABLE_PREVIEWS = YES;
-				ENABLE_USER_SELECTED_FILES = readonly;
-				GENERATE_INFOPLIST_FILE = YES;
-				INFOPLIST_KEY_NSHumanReadableCopyright = "";
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = ClipStack/Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/../Frameworks",
 				);
 				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = com.prathamesh.ClipEasy;
+				OTHER_LDFLAGS = (
+					"-weak_framework",
+					SwiftData,
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.prathamesh.ClipStack;
 				PRODUCT_NAME = "$(TARGET_NAME)";
-				REGISTER_APP_GROUPS = YES;
 				STRING_CATALOG_GENERATE_SYMBOLS = YES;
 				SWIFT_APPROACHABLE_CONCURRENCY = YES;
 				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
 				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_STRICT_CONCURRENCY = minimal;
 				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
 				SWIFT_VERSION = 5.0;
 			};
@@ -312,7 +333,7 @@
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
-		0519475D304B1B2600FDAC57 /* Build configuration list for PBXProject "ClipEasy" */ = {
+		0519475D304B1B2600FDAC57 /* Build configuration list for PBXProject "ClipStack" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
 				0519476B304B1B2700FDAC57 /* Debug */,
@@ -321,7 +342,7 @@
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
 		};
-		0519476D304B1B2700FDAC57 /* Build configuration list for PBXNativeTarget "ClipEasy" */ = {
+		0519476D304B1B2700FDAC57 /* Build configuration list for PBXNativeTarget "ClipStack" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
 				0519476E304B1B2700FDAC57 /* Debug */,

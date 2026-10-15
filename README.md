@@ -161,6 +161,9 @@ Every shortcut is remappable in **Settings ▸ Shortcuts** and stored in `UserDe
 | <kbd>⌥⌘S</kbd> | **Toggle Stack Mode** — turn stacking on or off from anywhere |
 | <kbd>⌥Space</kbd> | **Recall** — open the saved-text search panel |
 
+The panel opens as a bare search field — it never puts your saved texts on screen until you type —
+and grows downwards into results from a fixed top edge, the way Spotlight does.
+
 In the recall panel: <kbd>↑</kbd>/<kbd>↓</kbd> (or <kbd>⌃P</kbd>/<kbd>⌃N</kbd>) move the highlight
 and wrap around, <kbd>↩</kbd> pastes the snippet into the app you came from (or just copies it, if
 you turn auto-paste off), <kbd>esc</kbd> closes with no action.
@@ -231,6 +234,7 @@ ClipStack/
 │   ├── SnippetStore.swift               observable source of truth for snippets
 │   ├── SnippetPersistence.swift         storage protocol + JSON backend
 │   ├── SwiftDataSnippetPersistence.swift  SwiftData backend (macOS 14+)
+│   ├── LegacyDefaultStoreReader.swift   read-only import from the old shared store
 │   ├── CloudSyncCoordinator.swift       iCloud key-value sync
 │   └── SnippetSyncMerge.swift           pure reconciliation rules
 └── UI/
@@ -238,6 +242,7 @@ ClipStack/
     ├── MenuBarView.swift           the dropdown
     ├── StackModeView.swift         stack list: remove, drag to reorder
     ├── SpotlightSearchPanel.swift  the ⌥Space panel and its view model
+    ├── GlassSurface.swift          Liquid Glass surface, with a pre-26 fallback
     ├── SavedTextsWindow.swift      management window + shared window controller
     ├── SnippetEditorView.swift     add/edit form
     ├── SettingsView.swift          settings panes
@@ -290,14 +295,25 @@ store and every view are identical on both systems, and `SwiftData.framework` is
 (`OTHER_LDFLAGS = -weak_framework SwiftData`) so the app still launches on 13. iCloud sync sits above
 both, so it works the same either way.
 
+Both backends write to `~/Library/Application Support/ClipStack/` (`Snippets.store` or
+`snippets.json`), and the SwiftData store is always given that explicit URL. Because the app is not
+sandboxed, a bare `ModelContainer(for:)` would resolve to `Application Support/default.store` — a path
+shared with every other unsandboxed process that does the same, including system agents such as
+`icloudmailagent`. Each side migrating that file to its own schema is what used to erase saved texts.
+On first launch ClipStack imports anything left there, reading it with SQLite strictly read-only and
+never modifying or deleting it. If the library cannot be loaded, the store goes read-only rather than
+saving an empty list over what is on disk.
+
 **The App Sandbox is off** (`ENABLE_APP_SANDBOX = NO`). A global event tap, Accessibility trust and
 synthesizing keystrokes into other apps are all incompatible with the sandbox. This is normal for a
 clipboard utility, and it means the app cannot be distributed on the Mac App Store — Developer ID
 signing and notarization are the distribution route.
 
-**Dark and Light Mode** are handled by the system. Panels use `.regularMaterial` and semantic colors,
-and the menu bar icon is a *template* image: the item count is knocked out of the badge rather than
-painted white, so macOS tints the whole icon correctly in either appearance.
+**Dark and Light Mode** are handled by the system. Panels are built from semantic colors and one
+shared surface (`GlassSurface.swift`): Liquid Glass (`.glassEffect`) on macOS 26 and later, and
+`.regularMaterial` on everything older, since the deployment target is still macOS 13. The menu bar
+icon is a *template* image: the item count is knocked out of the badge rather than painted white, so
+macOS tints the whole icon correctly in either appearance.
 
 **The app icon is drawn from source** (`Scripts/generate-app-icon.swift`) rather than checked in as
 opaque binaries. The glyph is hand-drawn because SF Symbols are licensed for use in an app's

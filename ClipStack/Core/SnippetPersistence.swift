@@ -14,6 +14,13 @@
 //  OTHER_LDFLAGS in the project) so the app still launches on macOS 13, where
 //  the framework is simply never touched.
 //
+//  ── Where the files live ────────────────────────────────────────────────────
+//  Both backends keep their files in ~/Library/Application Support/ClipStack/.
+//  ClipStack is not sandboxed, so Application Support is shared with every other
+//  unsandboxed process on the Mac, and a generic file name written straight into
+//  it can belong to someone else too. That is exactly how saved texts were lost
+//  before — see LegacyDefaultStoreReader.swift.
+//
 
 import Foundation
 
@@ -21,6 +28,34 @@ import Foundation
 protocol SnippetPersistence: AnyObject {
     func load() throws -> [Snippet]
     func save(_ snippets: [Snippet]) throws
+}
+
+enum SnippetStorageLocation {
+    /// ~/Library/Application Support/ClipStack
+    nonisolated static var directory: URL {
+        FileManager.default
+            .urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+            .appendingPathComponent("ClipStack", isDirectory: true)
+    }
+}
+
+// MARK: - Unavailable backend
+
+/// Stands in when the real backend could not be opened. Every call reports the
+/// original error, which puts `SnippetStore` into its read-only state — rather
+/// than quietly swapping in a different, empty backend, which makes a storage
+/// problem look exactly like the library having been wiped.
+@MainActor
+final class UnavailableSnippetPersistence: SnippetPersistence {
+
+    private let error: Error
+
+    init(error: Error) {
+        self.error = error
+    }
+
+    func load() throws -> [Snippet] { throw error }
+    func save(_ snippets: [Snippet]) throws { throw error }
 }
 
 // MARK: - JSON fallback (macOS 13)
@@ -34,9 +69,7 @@ final class JSONSnippetPersistence: SnippetPersistence {
     private let fileURL: URL
 
     init(directory: URL? = nil) {
-        let base = directory ?? FileManager.default
-            .urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
-            .appendingPathComponent("ClipStack", isDirectory: true)
+        let base = directory ?? SnippetStorageLocation.directory
 
         try? FileManager.default.createDirectory(at: base, withIntermediateDirectories: true)
         self.fileURL = base.appendingPathComponent("snippets.json")

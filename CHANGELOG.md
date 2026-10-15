@@ -28,7 +28,39 @@ and this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 - `Snippet.updatedAt`, to resolve sync conflicts. Snippet files written before
   this field existed still load.
 
-nano ~/.ssh/config
+### Changed
+- **The ⌥Space recall panel opens as a bare search field.** It used to list the
+  whole library the moment it appeared — every saved text on screen over
+  whatever the user was doing, unasked. Results now appear only once something
+  is typed, and the panel grows downwards from a fixed top edge as they arrive,
+  the way Spotlight does.
+- **Liquid Glass.** The recall panel and the HUD are built from
+  `.glassEffect` on macOS 26 and later, falling back to `.regularMaterial`
+  below it, with Spotlight-like open, resize and selection animations.
+
+### Fixed
+- **Saved texts could vanish, typically after a restart.** The SwiftData store
+  was opened without a location, which for an unsandboxed app is the shared
+  `~/Library/Application Support/default.store`. Other processes use that file
+  too (`icloudmailagent` among them), and each one migrated it to its own
+  schema, dropping ClipStack's table. Saves then failed with a file error until
+  the next launch, which found the library empty. The store now lives at
+  `Application Support/ClipStack/Snippets.store`; snippets still in the old file
+  are imported once, read-only, leaving that file untouched.
+- **A library that failed to load could be wiped by the next edit.** Load
+  failure left an empty list in memory, and saving writes that list over the
+  store. The store now goes read-only with a Retry button until a load succeeds,
+  and ignores iCloud deliveries meanwhile.
+- **A SwiftData store that failed to open silently switched to a JSON file,**
+  showing an empty library and saving to a file later launches did not read. It
+  now reports the error instead.
+- **iCloud sync kept writing after refusing remote data** it could not read or
+  that came from a newer ClipStack, overwriting the other Mac's library. Writes
+  now pause until the data is readable again.
+- **Editing a saved text could undo changes made while the editor was open** —
+  a recall count, a pin, or an iCloud update. Only the edited fields are applied.
+- **The Delete key removed rows hidden by the filter** if they had been selected
+  before filtering. Only visible rows are deleted.
 - **⌘C was silently dropped whenever the global monitor was the capture route.**
   Regression introduced with the dual-route capture. The change-count baseline
   was sampled when the keystroke was seen, which is only correct for the event

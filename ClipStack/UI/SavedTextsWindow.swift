@@ -104,7 +104,10 @@ struct SavedTextsView: View {
                 errorBanner(error)
             }
 
-            if store.snippets.isEmpty {
+            if store.isReadOnly {
+                // Not "No saved texts yet": they may well exist, just unread.
+                Spacer()
+            } else if store.snippets.isEmpty {
                 emptyState
             } else {
                 list
@@ -119,11 +122,7 @@ struct SavedTextsView: View {
                 }
             case .existing(let snippet):
                 SnippetEditorView(snippet: snippet) { title, body, tags in
-                    var updated = snippet
-                    updated.title = title
-                    updated.body = body
-                    updated.tags = tags
-                    store.update(updated)
+                    store.update(id: snippet.id, title: title, body: body, tags: tags)
                 }
             }
         }
@@ -139,6 +138,7 @@ struct SavedTextsView: View {
                 Label("New", systemImage: "plus")
             }
             .help("Add a saved text")
+            .disabled(store.isReadOnly)
 
             HStack(spacing: 6) {
                 Image(systemName: "magnifyingglass")
@@ -195,8 +195,12 @@ struct SavedTextsView: View {
             }
         }
         .listStyle(.inset)
-        // Delete key on the current selection.
-        .onDeleteCommand { store.delete(ids: selection); selection = [] }
+        // Delete key on the current selection — only the rows on screen. Rows
+        // selected before the filter hid them must not be deleted unseen.
+        .onDeleteCommand {
+            store.delete(ids: selection.intersection(visibleSnippets.map(\.id)))
+            selection = []
+        }
     }
 
     private var emptyState: some View {
@@ -223,8 +227,14 @@ struct SavedTextsView: View {
     private func errorBanner(_ message: String) -> some View {
         HStack(spacing: 8) {
             Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(.orange)
-            Text(message).font(.caption)
+            Text(message)
+                .font(.caption)
+                .fixedSize(horizontal: false, vertical: true)
             Spacer()
+            if store.isReadOnly {
+                Button("Retry") { store.reload() }
+                    .controlSize(.small)
+            }
         }
         .padding(8)
         .background(Color.orange.opacity(0.12))

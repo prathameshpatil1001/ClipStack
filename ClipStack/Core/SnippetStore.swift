@@ -20,8 +20,14 @@ final class SnippetStore: ObservableObject {
     /// losing the user's data.
     @Published private(set) var lastErrorMessage: String?
 
+    /// True while the library could not be loaded. Every write is refused in this
+    /// state: `snippets` is then an empty list rather than the user's library, and
+    /// the backends save by replacing what is on disk with the in-memory list —
+    /// one keystroke would otherwise erase everything the load failed to read.
+    @Published private(set) var isReadOnly = false
+
     /// Which backend actually loaded — surfaced in Settings for support reasons.
-    private(set) var backendDescription: String = "unknown"
+    let backendDescription: String
 
     private let persistence: SnippetPersistence
     private let cloudSync: CloudSyncCoordinator?
@@ -34,25 +40,19 @@ final class SnippetStore: ObservableObject {
 
     private let tombstoneDefaultsKey = "snippetTombstones"
 
+    /// - Parameter persistence: The backend to use. `AppEnvironment` picks it via
+    ///   `SnippetPersistenceFactory`, which keeps SwiftData out of this file so
+    ///   the store compiles into the logic tests.
     init(
-        persistence: SnippetPersistence? = nil,
+        persistence: SnippetPersistence,
+        backendDescription: String = "injected",
         cloudSync: CloudSyncCoordinator? = nil,
         defaults: UserDefaults = .standard
     ) {
+        self.persistence = persistence
+        self.backendDescription = backendDescription
         self.cloudSync = cloudSync
         self.defaults = defaults
-
-        if let persistence {
-            self.persistence = persistence
-            self.backendDescription = "injected"
-        } else if #available(macOS 14, *), let swiftData = try? SwiftDataSnippetPersistence() {
-            self.persistence = swiftData
-            self.backendDescription = "SwiftData"
-        } else {
-            // macOS 13, or a SwiftData container that refused to open.
-            self.persistence = JSONSnippetPersistence()
-            self.backendDescription = "JSON file"
-        }
 
         loadTombstones()
         reload()
@@ -65,19 +65,26 @@ final class SnippetStore: ObservableObject {
 
     // MARK: - Loading
 
+    /// Loads the library. Also the recovery path out of `isReadOnly`.
     func reload() {
         do {
             snippets = try persistence.load()
             lastErrorMessage = nil
+            let wasReadOnly = isReadOnly
+            isReadOnly = false
+            // Anything iCloud delivered while we could not load was set aside.
+            if wasReadOnly { cloudSync?.redeliverRemotePayload() }
         } catch {
             snippets = []
-            lastErrorMessage = "Could not load saved texts: \(error.localizedDescription)"
+            isReadOnly = true
+            lastErrorMessage = "Could not load saved texts: \(error.localizedDescription) Changes are paused so nothing on disk is overwritten."
         }
     }
 
     // MARK: - Mutations
 
     func add(title: String, body: String, tags: [String]) {
+        guard !isReadOnly else { return }
         let snippet = Snippet(
             title: title.trimmingCharacters(in: .whitespacesAndNewlines),
             body: body,
@@ -87,13 +94,15 @@ final class SnippetStore: ObservableObject {
         persist()
     }
 
-    func update(_ snippet: Snippet) {
-        guard let index = snippets.firstIndex(where: { $0.id == snippet.id }) else { return }
-        var updated = snippet
-        updated.title = snippet.title.trimmingCharacters(in: .whitespacesAndNewlines)
-        updated.tags = Self.cleanTags(snippet.tags)
-        updated.updatedAt = Date()
-        snippets[index] = updated
+    /// Applies an edit from the editor sheet. Takes only the edited fields, not a
+    /// whole `Snippet`: the sheet's copy was captured when it opened, and writing
+    /// it back would undo a recall, pin or iCloud change that landed meanwhile.
+    func update(id: UUID, title: String, body: String, tags: [String]) {
+        guard !isReadOnly, let index = snippets.firstIndex(where: { $0.id == id }) else { return }
+        snippets[index].title = title.trimmingCharacters(in: .whitespacesAndNewlines)
+        snippets[index].body = body
+        snippets[index].tags = Self.cleanTags(tags)
+        snippets[index].updatedAt = Date()
         persist()
     }
 
@@ -102,7 +111,7 @@ final class SnippetStore: ObservableObject {
     }
 
     func delete(ids: Set<UUID>) {
-        guard !ids.isEmpty else { return }
+        guard !isReadOnly, !ids.isEmpty else { return }
         let existing = Set(snippets.map(\.id)).intersection(ids)
         guard !existing.isEmpty else { return }
 
@@ -117,7 +126,7 @@ final class SnippetStore: ObservableObject {
     }
 
     func togglePin(_ snippet: Snippet) {
-        guard let index = snippets.firstIndex(where: { $0.id == snippet.id }) else { return }
+        guard !isReadOnly, let index = snippets.firstIndex(where: { $0.id == snippet.id }) else { return }
         snippets[index].isPinned.toggle()
         snippets[index].updatedAt = Date()
         persist()
@@ -126,7 +135,7 @@ final class SnippetStore: ObservableObject {
     /// Called when a snippet is recalled: this is what feeds the frequency and
     /// recency boosts in `FuzzySearchEngine`.
     func markUsed(_ snippet: Snippet) {
-        guard let index = snippets.firstIndex(where: { $0.id == snippet.id }) else { return }
+        guard !isReadOnly, let index = snippets.firstIndex(where: { $0.id == snippet.id }) else { return }
         snippets[index].useCount += 1
         snippets[index].lastUsedAt = Date()
         snippets[index].updatedAt = Date()
@@ -159,6 +168,8 @@ final class SnippetStore: ObservableObject {
         guard let cloudSync else { return }
         if enabled {
             cloudSync.start()
+            // An unloaded library has nothing real to seed iCloud with.
+            guard !isReadOnly else { return }
             cloudSync.push(syncPayload)
         } else {
             cloudSync.stop()
@@ -172,6 +183,10 @@ final class SnippetStore: ObservableObject {
     /// when the merge produced something iCloud does not already hold, which is
     /// what stops two Macs from echoing each other indefinitely.
     private func applyRemotePayload(_ remote: SnippetSyncPayload) {
+        // Merging into a library that failed to load would save the remote copy
+        // over the unread local one. `reload()` asks for a redelivery on recovery.
+        guard !isReadOnly else { return }
+
         let local = syncPayload
         let merged = SnippetSyncMerge.merge(local, remote)
 

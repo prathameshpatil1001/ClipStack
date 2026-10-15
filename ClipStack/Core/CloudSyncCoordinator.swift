@@ -67,6 +67,11 @@ final class CloudSyncCoordinator: ObservableObject {
     /// mistaken for a change from another Mac.
     private var lastKnownPayload: SnippetSyncPayload?
 
+    /// Set once iCloud holds a library this build refused to read (unreadable, or
+    /// from a newer ClipStack). Pushing after that would replace the other Mac's
+    /// library with this one, so writes stay off until sync is restarted.
+    private var remoteWritesBlocked = false
+
     init(store: NSUbiquitousKeyValueStore = .default) {
         self.store = store
     }
@@ -127,6 +132,7 @@ final class CloudSyncCoordinator: ObservableObject {
         observer = nil
         isEnabled = false
         lastKnownPayload = nil
+        remoteWritesBlocked = false
         status = .disabled
     }
 
@@ -134,7 +140,7 @@ final class CloudSyncCoordinator: ObservableObject {
 
     /// Writes the library to iCloud. Silently does nothing when sync is off.
     func push(_ payload: SnippetSyncPayload) {
-        guard isEnabled else { return }
+        guard isEnabled, !remoteWritesBlocked else { return }
         // Already known to be unavailable (missing entitlement, no account):
         // do not retry on every single edit.
         if case .unavailable = status { return }
@@ -170,6 +176,14 @@ final class CloudSyncCoordinator: ObservableObject {
 
     // MARK: - Pull
 
+    /// Hands iCloud's current library to the store again, even if it was already
+    /// delivered — for when the store had to set the first delivery aside.
+    func redeliverRemotePayload() {
+        guard isEnabled, status.isHealthy else { return }
+        lastKnownPayload = nil
+        deliverRemotePayloadIfPresent()
+    }
+
     private func handleExternalChange(reason: Int?, changedKeys: [String]?) {
         // Quota exceeded: iCloud has stopped accepting writes for this app.
         if reason == NSUbiquitousKeyValueStoreQuotaViolationChange {
@@ -194,16 +208,21 @@ final class CloudSyncCoordinator: ObservableObject {
         decoder.dateDecodingStrategy = .iso8601
 
         guard let payload = try? decoder.decode(SnippetSyncPayload.self, from: data) else {
-            status = .failed("iCloud holds saved texts in an unreadable format.")
+            remoteWritesBlocked = true
+            status = .failed("iCloud holds saved texts in an unreadable format. Not writing to iCloud, so they are not overwritten.")
             return
         }
 
         // Written by a newer ClipStack than this one: refuse rather than risk
         // dropping fields we do not understand on the next write-back.
         guard payload.formatVersion <= SnippetSyncPayload.currentFormatVersion else {
-            status = .failed("iCloud data was written by a newer version of ClipStack.")
+            remoteWritesBlocked = true
+            status = .failed("iCloud data was written by a newer version of ClipStack. Update ClipStack to keep syncing.")
             return
         }
+
+        // Readable again (another Mac rewrote it, or ClipStack was updated).
+        remoteWritesBlocked = false
 
         // Our own write echoing back.
         if let lastKnownPayload, lastKnownPayload.hasSameContent(as: payload) {

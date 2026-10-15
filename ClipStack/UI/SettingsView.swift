@@ -100,6 +100,13 @@ struct SettingsView: View {
                     Text("\(environment.snippets.snippets.count) saved via \(environment.snippets.backendDescription)")
                         .foregroundStyle(.secondary)
                 }
+
+                if let error = environment.snippets.lastErrorMessage {
+                    Label(error, systemImage: "exclamationmark.triangle.fill")
+                        .font(.caption)
+                        .foregroundStyle(.orange)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
             }
 
             Section("Recall panel") {

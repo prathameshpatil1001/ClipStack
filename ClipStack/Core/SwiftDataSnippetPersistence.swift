@@ -98,12 +98,49 @@ final class SnippetRecord {
 @MainActor
 final class SwiftDataSnippetPersistence: SnippetPersistence {
 
+    /// ~/Library/Application Support/ClipStack/Snippets.store
+    nonisolated static var defaultStoreURL: URL {
+        SnippetStorageLocation.directory.appendingPathComponent("Snippets.store")
+    }
+
     private let container: ModelContainer
 
-    init() throws {
-        // Default on-disk store under Application Support. Throwing here is what
-        // triggers SnippetStore's fallback to the JSON backend.
-        container = try ModelContainer(for: SnippetRecord.self)
+    /// - Parameters:
+    ///   - storeURL: Always explicit. With no URL, an unsandboxed app's store
+    ///     lands on `Application Support/default.store`, which other processes
+    ///     open as well (see LegacyDefaultStoreReader.swift).
+    ///   - legacyStoreURL: Imported from once, when `storeURL` is first created.
+    init(
+        storeURL: URL = SwiftDataSnippetPersistence.defaultStoreURL,
+        legacyStoreURL: URL? = LegacyDefaultStoreReader.defaultURL
+    ) throws {
+        let isNewStore = !FileManager.default.fileExists(atPath: storeURL.path)
+        try FileManager.default.createDirectory(
+            at: storeURL.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+
+        // `.none`: sync goes through iCloud key-value storage (CloudSyncCoordinator),
+        // never CloudKit, whatever entitlements a build happens to carry.
+        let configuration = ModelConfiguration(url: storeURL, cloudKitDatabase: .none)
+        container = try ModelContainer(for: SnippetRecord.self, configurations: configuration)
+
+        if isNewStore, let legacyStoreURL {
+            importLegacySnippets(from: legacyStoreURL)
+        }
+    }
+
+    /// Best effort: the legacy file is only ever read, so a failure here loses
+    /// nothing that was not already stranded there.
+    private func importLegacySnippets(from url: URL) {
+        let legacy = LegacyDefaultStoreReader.readSnippets(at: url)
+        guard !legacy.isEmpty else { return }
+        do {
+            try save(legacy)
+            NSLog("ClipStack: imported %d saved texts from %@", legacy.count, url.path)
+        } catch {
+            NSLog("ClipStack: could not import saved texts from %@: %@", url.path, error.localizedDescription)
+        }
     }
 
     private var context: ModelContext { container.mainContext }
@@ -136,5 +173,27 @@ final class SwiftDataSnippetPersistence: SnippetPersistence {
         }
 
         try context.save()
+    }
+}
+
+// MARK: - Backend selection
+
+enum SnippetPersistenceFactory {
+
+    /// SwiftData on macOS 14+, the JSON file on macOS 13.
+    ///
+    /// A SwiftData store that fails to open does *not* fall back to JSON: that
+    /// would show an empty library, save new texts somewhere the next successful
+    /// launch never reads, and look exactly like data loss. The store goes
+    /// read-only and reports the error instead.
+    static func makeDefault() -> (persistence: SnippetPersistence, description: String) {
+        if #available(macOS 14, *) {
+            do {
+                return (try SwiftDataSnippetPersistence(), "SwiftData")
+            } catch {
+                return (UnavailableSnippetPersistence(error: error), "SwiftData (could not open)")
+            }
+        }
+        return (JSONSnippetPersistence(), "JSON file")
     }
 }

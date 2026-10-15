@@ -8,6 +8,7 @@ import Foundation
 let totalFailures = FuzzySearchChecks.run()
     + SyncMergeChecks.run()
     + (await ClipboardChecks.run())
+    + (await SnippetStoreChecks.run())
 
 print("")
 if totalFailures == 0 {

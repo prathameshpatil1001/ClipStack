@@ -121,15 +121,11 @@ private struct HUDView: View {
                 .foregroundStyle(.primary)
                 .lineLimit(1)
         }
-        .padding(.horizontal, 14)
-        .padding(.vertical, 10)
-        // .regularMaterial resolves against the system appearance, so the HUD
-        // follows Dark/Light Mode with no code of our own.
-        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
-        .overlay(
-            RoundedRectangle(cornerRadius: 10, style: .continuous)
-                .strokeBorder(Color.primary.opacity(0.08), lineWidth: 1)
-        )
+        .padding(.horizontal, 15)
+        .padding(.vertical, 11)
+        // Glass (or the material below macOS 26) resolves against the system
+        // appearance, so the HUD follows Dark/Light Mode with no code of our own.
+        .glassSurface(in: Capsule(style: .continuous))
         .fixedSize()
     }
 }

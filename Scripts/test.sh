@@ -24,10 +24,15 @@ xcrun swiftc -O \
     ClipStack/Core/FuzzySearchEngine.swift \
     ClipStack/Core/SnippetSyncMerge.swift \
     ClipStack/Core/ClipboardManager.swift \
+    ClipStack/Core/SnippetPersistence.swift \
+    ClipStack/Core/LegacyDefaultStoreReader.swift \
+    ClipStack/Core/CloudSyncCoordinator.swift \
+    ClipStack/Core/SnippetStore.swift \
     Tests/CheckRunner.swift \
     Tests/FuzzySearchChecks.swift \
     Tests/SyncMergeChecks.swift \
     Tests/ClipboardChecks.swift \
+    Tests/SnippetStoreChecks.swift \
     Tests/main.swift
 
 "$BUILD_DIR/clipstack-checks"

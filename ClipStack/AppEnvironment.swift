@@ -35,7 +35,12 @@ final class AppEnvironment: ObservableObject {
         self.clipboard = clipboard
         let cloudSync = CloudSyncCoordinator()
         self.cloudSync = cloudSync
-        self.snippets = SnippetStore(cloudSync: cloudSync)
+        let backend = SnippetPersistenceFactory.makeDefault()
+        self.snippets = SnippetStore(
+            persistence: backend.persistence,
+            backendDescription: backend.description,
+            cloudSync: cloudSync
+        )
         self.hotKeys = HotKeyManager()
         self.stack = StackModeController(
             preferences: preferences,

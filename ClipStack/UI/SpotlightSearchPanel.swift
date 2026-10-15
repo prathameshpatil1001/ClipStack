@@ -5,6 +5,15 @@
 //  The ⌥Space recall panel: a floating, centred, borderless, always-on-top
 //  window with one text field and a live-ranked result list.
 //
+//  It is modelled on Spotlight, including the parts that are easy to miss:
+//
+//   • It opens as a bare search field. `FuzzySearchEngine` answers an empty
+//     query with the whole library — right for the management window's filter,
+//     wrong here, where it would throw every saved text onto the screen of
+//     whatever the user was doing the instant a hotkey is pressed.
+//   • It grows downwards into results only once there is something to show, with
+//     the top edge staying exactly where it was.
+//
 //  Two AppKit details make this work:
 //
 //   • A borderless NSWindow cannot become key by default, so the text field
@@ -19,6 +28,40 @@ import AppKit
 import SwiftUI
 import Carbon.HIToolbox
 import Combine
+import QuartzCore
+
+// MARK: - Metrics
+
+/// Shared by the view and the window controller, so the SwiftUI content and the
+/// window it lives in can never disagree about how tall the panel is.
+enum PanelMetrics {
+    static let width: CGFloat = 640
+    static let fieldHeight: CGFloat = 62
+    static let rowHeight: CGFloat = 56
+    static let emptyRowHeight: CGFloat = 54
+    static let separatorHeight: CGFloat = 1
+    static let maximumVisibleRows = 7
+    static let cornerRadius: CGFloat = 26
+
+    /// How far down the screen the panel sits, as a fraction of the visible
+    /// height — Spotlight's proportion, which reads as "upper third".
+    static let topInsetFraction: CGFloat = 0.20
+
+    /// One duration for the window resize and the SwiftUI layout that rides
+    /// along with it; if these drift apart the glass edge lags the content.
+    static let resizeDuration: TimeInterval = 0.18
+    static let revealDuration: TimeInterval = 0.14
+
+    static var shape: RoundedRectangle {
+        RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+    }
+
+    static func height(resultCount: Int, hasQuery: Bool) -> CGFloat {
+        guard hasQuery else { return fieldHeight }
+        guard resultCount > 0 else { return fieldHeight + separatorHeight + emptyRowHeight }
+        return fieldHeight + separatorHeight + CGFloat(min(resultCount, maximumVisibleRows)) * rowHeight
+    }
+}
 
 // MARK: - Panel
 
@@ -40,11 +83,20 @@ final class RecallViewModel: ObservableObject {
     @Published private(set) var results: [SnippetSearchResult] = []
     @Published var selectedIndex: Int = 0
 
+    /// Whether the field holds anything worth searching for. Everything below
+    /// the field is hidden until it does.
+    @Published private(set) var hasQuery: Bool = false
+
+    /// The height the panel should have for what is on screen right now.
+    @Published private(set) var panelHeight: CGFloat = PanelMetrics.fieldHeight
+
+    /// Drives the open and close animation of the panel's content.
+    @Published var isRevealed = false
+
     private let store: SnippetStore
 
     init(store: SnippetStore) {
         self.store = store
-        refreshResults()
     }
 
     var selectedSnippet: Snippet? {
@@ -53,9 +105,13 @@ final class RecallViewModel: ObservableObject {
     }
 
     func refreshResults() {
-        results = store.search(query)
+        let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        hasQuery = !trimmed.isEmpty
+        // An empty field shows nothing at all — see the note at the top.
+        results = hasQuery ? store.search(trimmed) : []
         // Any change to the result set puts the highlight back on the best match.
-        selectedIndex = results.isEmpty ? 0 : 0
+        selectedIndex = 0
+        panelHeight = PanelMetrics.height(resultCount: results.count, hasQuery: hasQuery)
     }
 
     /// Reloads from the store and clears the field — called each time the panel
@@ -87,6 +143,11 @@ final class SpotlightSearchPanelController: NSObject, NSWindowDelegate {
     private let clipboard: ClipboardManager
     private let preferences: Preferences
     private var keyMonitor: Any?
+    private var cancellables = Set<AnyCancellable>()
+
+    /// Tracked separately from `panel.isVisible`: the window stays visible for
+    /// the length of its fade-out, and must not answer "yes" to the hotkey then.
+    private var isPresented = false
 
     /// The app that was frontmost when the panel opened, so focus can go back.
     private var previouslyActiveApp: NSRunningApplication?
@@ -94,16 +155,22 @@ final class SpotlightSearchPanelController: NSObject, NSWindowDelegate {
     /// Shows the "Copied ✓" confirmation.
     var onHUD: ((String, String) -> Void)?
 
-    private let panelWidth: CGFloat = 620
-
     init(store: SnippetStore, clipboard: ClipboardManager, preferences: Preferences) {
         self.viewModel = RecallViewModel(store: store)
         self.clipboard = clipboard
         self.preferences = preferences
         super.init()
+
+        // One place decides the height, and the window follows it.
+        viewModel.$panelHeight
+            .removeDuplicates()
+            .sink { [weak self] height in
+                self?.setPanelHeight(height, animated: true)
+            }
+            .store(in: &cancellables)
     }
 
-    var isVisible: Bool { panel?.isVisible ?? false }
+    var isVisible: Bool { isPresented }
 
     // MARK: Show / hide
 
@@ -115,20 +182,44 @@ final class SpotlightSearchPanelController: NSObject, NSWindowDelegate {
         // Remember who had focus before we steal it.
         previouslyActiveApp = NSWorkspace.shared.frontmostApplication
 
+        // Before anything is on screen: empty field, no results, collapsed.
         viewModel.reset()
 
         let panel = existingOrNewPanel()
+        isPresented = true
+        setPanelHeight(viewModel.panelHeight, animated: false)
         positionOnActiveScreen(panel)
 
+        panel.alphaValue = 0
         NSApp.activate(ignoringOtherApps: true)
         panel.makeKeyAndOrderFront(nil)
+        viewModel.isRevealed = true
+
+        NSAnimationContext.runAnimationGroup { context in
+            context.duration = PanelMetrics.revealDuration
+            context.timingFunction = CAMediaTimingFunction(name: .easeOut)
+            panel.animator().alphaValue = 1
+        }
 
         installKeyMonitor()
     }
 
     func close(restoringFocus: Bool) {
         removeKeyMonitor()
-        panel?.orderOut(nil)
+        isPresented = false
+        viewModel.isRevealed = false
+
+        if let panel {
+            NSAnimationContext.runAnimationGroup({ context in
+                context.duration = PanelMetrics.revealDuration * 0.8
+                context.timingFunction = CAMediaTimingFunction(name: .easeIn)
+                panel.animator().alphaValue = 0
+            }, completionHandler: { [weak panel] in
+                // Skip if the panel was reopened while it was fading out.
+                guard let panel, panel.alphaValue < 0.01 else { return }
+                panel.orderOut(nil)
+            })
+        }
 
         guard restoringFocus else { return }
         // Return the user to whatever they were doing. Without this, closing the
@@ -178,18 +269,20 @@ final class SpotlightSearchPanelController: NSObject, NSWindowDelegate {
         if let panel { return panel }
 
         let panel = SpotlightPanel(
-            contentRect: NSRect(x: 0, y: 0, width: panelWidth, height: 88),
+            contentRect: NSRect(x: 0, y: 0, width: PanelMetrics.width, height: PanelMetrics.fieldHeight),
             styleMask: [.borderless, .nonactivatingPanel, .fullSizeContentView],
             backing: .buffered,
             defer: false
         )
         panel.isOpaque = false
         panel.backgroundColor = .clear
+        // The glass draws the panel's edge and shadow; a second window shadow
+        // under a translucent surface reads as a grey halo.
         panel.hasShadow = true
         panel.isMovableByWindowBackground = true
         panel.level = .floating
         panel.hidesOnDeactivate = false
-        panel.animationBehavior = .utilityWindow
+        panel.animationBehavior = .none   // we run the fade ourselves
         panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .ignoresCycle]
         panel.delegate = self
 
@@ -199,10 +292,31 @@ final class SpotlightSearchPanelController: NSObject, NSWindowDelegate {
             onCancel: { [weak self] in self?.close(restoringFocus: true) }
         )
         let hostingView = NSHostingView(rootView: root)
+        hostingView.sizingOptions = [.intrinsicContentSize]
         panel.contentView = hostingView
 
         self.panel = panel
         return panel
+    }
+
+    /// Grows and shrinks from the top edge, the way Spotlight does: the field
+    /// stays under the user's eyes and the results unroll beneath it.
+    private func setPanelHeight(_ height: CGFloat, animated: Bool) {
+        guard let panel else { return }
+        var frame = panel.frame
+        guard abs(frame.height - height) > 0.5 else { return }
+        frame.origin.y += frame.height - height
+        frame.size.height = height
+
+        guard animated, isPresented else {
+            panel.setFrame(frame, display: false)
+            return
+        }
+        NSAnimationContext.runAnimationGroup { context in
+            context.duration = PanelMetrics.resizeDuration
+            context.timingFunction = CAMediaTimingFunction(name: .easeOut)
+            panel.animator().setFrame(frame, display: true)
+        }
     }
 
     /// Centred horizontally, sitting in the upper third — where Spotlight puts
@@ -214,17 +328,17 @@ final class SpotlightSearchPanelController: NSObject, NSWindowDelegate {
             ?? NSScreen.screens[0]
 
         let visible = screen.visibleFrame
-        let height = panel.frame.height
-        let origin = NSPoint(
-            x: visible.midX - panelWidth / 2,
-            y: visible.maxY - height - visible.height * 0.20
-        )
-        panel.setFrameOrigin(origin)
+        // Positioned by its top-left corner, so a panel that later grows taller
+        // keeps this exact top edge.
+        panel.setFrameTopLeftPoint(NSPoint(
+            x: visible.midX - PanelMetrics.width / 2,
+            y: visible.maxY - visible.height * PanelMetrics.topInsetFraction
+        ))
     }
 
     /// Clicking somewhere else dismisses the panel, matching Spotlight.
     func windowDidResignKey(_ notification: Notification) {
-        guard isVisible else { return }
+        guard isPresented else { return }
         close(restoringFocus: false)
     }
 
@@ -281,44 +395,54 @@ struct SpotlightSearchView: View {
     let onCancel: () -> Void
 
     @FocusState private var isFieldFocused: Bool
-
-    private let rowHeight: CGFloat = 52
-    private let maximumVisibleRows = 7
+    /// Lets the highlight slide between rows instead of blinking from one to the
+    /// next as the selection moves.
+    @Namespace private var selectionNamespace
 
     var body: some View {
         VStack(spacing: 0) {
             searchField
 
-            if !viewModel.results.isEmpty {
-                Divider()
-                resultList
-            } else if !viewModel.query.isEmpty {
-                Divider()
-                emptyState
+            if viewModel.hasQuery {
+                Divider().opacity(0.6)
+                if viewModel.results.isEmpty {
+                    emptyState
+                } else {
+                    resultList
+                }
             }
         }
-        .background(.regularMaterial)   // follows Dark/Light Mode automatically
-        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
-        .overlay(
-            RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .strokeBorder(Color.primary.opacity(0.1), lineWidth: 1)
-        )
+        .frame(width: PanelMetrics.width, height: viewModel.panelHeight, alignment: .top)
+        .clipShape(PanelMetrics.shape)
+        .glassSurface(in: PanelMetrics.shape)
+        // Opens the way Spotlight does: a short fade with the panel settling
+        // into place from slightly small.
+        .scaleEffect(viewModel.isRevealed ? 1 : 0.97, anchor: .top)
+        .opacity(viewModel.isRevealed ? 1 : 0)
+        .animation(.easeOut(duration: PanelMetrics.revealDuration), value: viewModel.isRevealed)
+        // Matches the window's own resize, so content and glass edge move together.
+        .animation(.easeOut(duration: PanelMetrics.resizeDuration), value: viewModel.panelHeight)
         .onAppear {
             // The window must be key before a SwiftUI field can take focus, and
             // that happens a beat after the view is built.
             DispatchQueue.main.async { isFieldFocused = true }
         }
+        .onChange(of: viewModel.isRevealed) { revealed in
+            // The panel is reused, so focus has to be taken again on each open.
+            guard revealed else { return }
+            DispatchQueue.main.async { isFieldFocused = true }
+        }
     }
 
     private var searchField: some View {
-        HStack(spacing: 10) {
+        HStack(spacing: 13) {
             Image(systemName: "magnifyingglass")
-                .font(.system(size: 18, weight: .light))
+                .font(.system(size: 19, weight: .regular))
                 .foregroundStyle(.secondary)
 
             TextField("Search saved texts\u{2026}", text: $viewModel.query)
                 .textFieldStyle(.plain)
-                .font(.system(size: 22, weight: .light))
+                .font(.system(size: 21, weight: .light))
                 .focused($isFieldFocused)
                 .onSubmit(onActivate)
 
@@ -326,10 +450,12 @@ struct SpotlightSearchView: View {
                 Text("\(viewModel.selectedIndex + 1) of \(viewModel.results.count)")
                     .font(.system(size: 11))
                     .foregroundStyle(.tertiary)
+                    .monospacedDigit()
+                    .transition(.opacity)
             }
         }
-        .padding(.horizontal, 18)
-        .frame(height: 60)
+        .padding(.horizontal, 20)
+        .frame(height: PanelMetrics.fieldHeight)
     }
 
     private var resultList: some View {
@@ -339,11 +465,12 @@ struct SpotlightSearchView: View {
                     ForEach(Array(viewModel.results.enumerated()), id: \.element.id) { index, result in
                         SpotlightResultRow(
                             snippet: result.snippet,
-                            isSelected: index == viewModel.selectedIndex
+                            isSelected: index == viewModel.selectedIndex,
+                            namespace: selectionNamespace
                         )
                         .id(result.id)
                         .contentShape(Rectangle())
-                        .onTapGesture { 
+                        .onTapGesture {
                             viewModel.selectedIndex = index
                             onActivate()
                         }
@@ -354,8 +481,10 @@ struct SpotlightSearchView: View {
                         }
                     }
                 }
+                .animation(.easeOut(duration: 0.13), value: viewModel.selectedIndex)
+                .padding(.vertical, 4)
             }
-            .frame(height: min(CGFloat(viewModel.results.count), CGFloat(maximumVisibleRows)) * rowHeight)
+            .frame(height: min(CGFloat(viewModel.results.count), CGFloat(PanelMetrics.maximumVisibleRows)) * PanelMetrics.rowHeight)
             .onChange(of: viewModel.selectedIndex) { newValue in
                 guard viewModel.results.indices.contains(newValue) else { return }
                 withAnimation(.easeOut(duration: 0.12)) {
@@ -369,33 +498,35 @@ struct SpotlightSearchView: View {
         HStack(spacing: 8) {
             Image(systemName: "questionmark.circle")
                 .foregroundStyle(.secondary)
-            Text("No saved text matches “\(viewModel.query)”")
+            Text("No saved text matches \u{201C}\(viewModel.query)\u{201D}")
                 .foregroundStyle(.secondary)
+                .lineLimit(1)
             Spacer()
         }
         .font(.system(size: 13))
-        .padding(.horizontal, 18)
-        .frame(height: 52)
+        .padding(.horizontal, 20)
+        .frame(height: PanelMetrics.emptyRowHeight)
     }
 }
 
 private struct SpotlightResultRow: View {
     let snippet: Snippet
     let isSelected: Bool
+    let namespace: Namespace.ID
 
     var body: some View {
-        HStack(spacing: 12) {
+        HStack(spacing: 13) {
             Image(systemName: snippet.isPinned ? "pin.fill" : "doc.text")
                 .font(.system(size: 14))
                 .foregroundStyle(isSelected ? AnyShapeStyle(.white) : AnyShapeStyle(.secondary))
-                .frame(width: 20)
+                .frame(width: 22)
 
             VStack(alignment: .leading, spacing: 2) {
                 Text(snippet.displayTitle.truncated(to: 70))
-                    .font(.system(size: 13, weight: .medium))
+                    .font(.system(size: 13.5, weight: .medium))
                     .lineLimit(1)
                 Text(snippet.preview.truncated(to: 90))
-                    .font(.system(size: 11))
+                    .font(.system(size: 11.5))
                     .foregroundStyle(isSelected ? AnyShapeStyle(.white.opacity(0.8)) : AnyShapeStyle(.secondary))
                     .lineLimit(1)
             }
@@ -404,20 +535,27 @@ private struct SpotlightResultRow: View {
 
             if !snippet.tags.isEmpty {
                 Text(snippet.tags.prefix(2).joined(separator: " · "))
-                    .font(.system(size: 10))
+                    .font(.system(size: 10.5))
                     .foregroundStyle(isSelected ? AnyShapeStyle(.white.opacity(0.75)) : AnyShapeStyle(.tertiary))
                     .lineLimit(1)
             }
 
             if isSelected {
-                Text("↩")
+                Text("\u{21A9}")
                     .font(.system(size: 12, weight: .medium))
                     .foregroundStyle(.white.opacity(0.9))
             }
         }
         .foregroundStyle(isSelected ? AnyShapeStyle(.white) : AnyShapeStyle(.primary))
-        .padding(.horizontal, 18)
-        .frame(height: 52)
-        .background(isSelected ? Color.accentColor : .clear)
+        .padding(.horizontal, 14)
+        .frame(height: PanelMetrics.rowHeight)
+        .background {
+            if isSelected {
+                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                    .fill(Color.accentColor)
+                    .matchedGeometryEffect(id: "spotlight.selection", in: namespace)
+            }
+        }
+        .padding(.horizontal, 8)
     }
 }

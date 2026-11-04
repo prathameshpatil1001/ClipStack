@@ -54,6 +54,9 @@ final class SwiftUIWindowController: NSWindowController, NSWindowDelegate {
     /// Brings the window forward, activating the app first — an LSUIElement app
     /// is never frontmost on its own.
     func present() {
+        if let window {
+            WindowActivationPolicy.windowWillAppear(window)
+        }
         NSApp.activate(ignoringOtherApps: true)
         showWindow(nil)
         window?.makeKeyAndOrderFront(nil)
@@ -61,6 +64,69 @@ final class SwiftUIWindowController: NSWindowController, NSWindowDelegate {
 
     func windowWillClose(_ notification: Notification) {
         onClose?()
+        if let window {
+            WindowActivationPolicy.windowDidClose(window)
+        }
+    }
+}
+
+// MARK: - Activation policy
+
+/// Makes ClipStack a regular app while one of its ordinary windows is open, and
+/// a menu-bar-only (accessory) app again once they are all closed.
+///
+/// An accessory app has no menu bar of its own. When it becomes the active app
+/// to put a window in front, macOS has no menus to show, so the menu bar
+/// disappears exactly as if a full-screen app were in front, until the pointer
+/// is pushed against the top edge. Switching to `.regular` while a window is up
+/// gives the system a real menu bar to show (with a working Edit menu for the
+/// text fields), at the price of a Dock icon while that window is open.
+///
+/// The recall panel and the HUD are deliberately not managed here: they are
+/// transient panels that must never put a Dock icon on screen.
+@MainActor
+enum WindowActivationPolicy {
+
+    private static var openWindows = Set<ObjectIdentifier>()
+
+    /// The app that was in front before the first window opened, so focus can be
+    /// handed back to it when the last one closes.
+    private static var previouslyActiveApp: NSRunningApplication?
+
+    static func windowWillAppear(_ window: NSWindow) {
+        if openWindows.isEmpty {
+            let frontmost = NSWorkspace.shared.frontmostApplication
+            if frontmost?.processIdentifier != ProcessInfo.processInfo.processIdentifier {
+                previouslyActiveApp = frontmost
+            }
+        }
+        openWindows.insert(ObjectIdentifier(window))
+        if NSApp.activationPolicy() != .regular {
+            NSApp.setActivationPolicy(.regular)
+        }
+    }
+
+    static func windowDidClose(_ window: NSWindow) {
+        openWindows.remove(ObjectIdentifier(window))
+        guard openWindows.isEmpty else { return }
+
+        // Deferred one turn: AppKit is still in the middle of closing the window.
+        DispatchQueue.main.async {
+            // Another window may have opened in the meantime.
+            guard openWindows.isEmpty else { return }
+            NSApp.setActivationPolicy(.accessory)
+
+            // Still frontmost with no window and, now, no menu bar: that is the
+            // hidden-menu-bar state all over again. Step aside.
+            if NSApp.isActive {
+                if let previous = previouslyActiveApp, !previous.isTerminated {
+                    previous.activate(options: [])
+                } else {
+                    NSApp.hide(nil)
+                }
+            }
+            previouslyActiveApp = nil
+        }
     }
 }
 

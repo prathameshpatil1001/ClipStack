@@ -20,6 +20,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     // Created lazily and reused; closing a window keeps the controller alive.
     private var savedTextsWindow: SwiftUIWindowController?
     private var settingsWindow: SwiftUIWindowController?
+    private var websitesWindow: SwiftUIWindowController?
 
     // MARK: - Lifecycle
 
@@ -75,6 +76,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             openSavedTexts: { [weak self] in self?.showSavedTexts() },
             openSettings: { [weak self] in self?.showSettings() },
             openRecallPanel: { [weak self] in self?.showRecallPanel() },
+            openWebsites: { [weak self] in self?.showWebsites() },
+            openWebsite: { [weak self] website in
+                self?.statusItemController?.closePopover()
+                self?.openWebsite(website)
+            },
             quit: { NSApp.terminate(nil) }
         )
         statusItemController = StatusItemController(environment: environment, actions: actions)
@@ -161,7 +167,39 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         savedTextsWindow?.present()
     }
 
-    private func showSettings() {
+    private func showWebsites() {
+        statusItemController?.closePopover()
+
+        if websitesWindow == nil {
+            let environment = self.environment!
+            websitesWindow = SwiftUIWindowController(
+                title: "Websites",
+                size: NSSize(width: 640, height: 420),
+                minSize: NSSize(width: 560, height: 360)
+            ) {
+                WebsitesView(store: environment.websites) { [weak self] website in
+                    self?.openWebsite(website)
+                }
+                .environmentObject(environment)
+            }
+        }
+        websitesWindow?.present()
+    }
+
+    /// Opens a saved website in its browser and profile, saying so if it can't.
+    private func openWebsite(_ website: Website) {
+        Task { @MainActor in
+            do {
+                try await BrowserLauncher.open(website)
+            } catch {
+                let message = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
+                hud.show(message, symbol: "exclamationmark.triangle.fill", duration: 3)
+            }
+        }
+    }
+
+    /// Internal rather than private: the app menu's Settings… item calls it.
+    func showSettings() {
         statusItemController?.closePopover()
 
         if settingsWindow == nil {

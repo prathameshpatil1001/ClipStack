@@ -21,6 +21,9 @@ xcrun swiftc -O \
     -swift-version 5 \
     -o "$BUILD_DIR/clipstack-checks" \
     ClipStack/Models/Snippet.swift \
+    ClipStack/Models/Website.swift \
+    ClipStack/Models/BrowserProfiles.swift \
+    ClipStack/Core/WebsiteStore.swift \
     ClipStack/Core/FuzzySearchEngine.swift \
     ClipStack/Core/SnippetSyncMerge.swift \
     ClipStack/Core/ClipboardManager.swift \
@@ -33,6 +36,7 @@ xcrun swiftc -O \
     Tests/SyncMergeChecks.swift \
     Tests/ClipboardChecks.swift \
     Tests/SnippetStoreChecks.swift \
+    Tests/WebsiteChecks.swift \
     Tests/main.swift
 
 "$BUILD_DIR/clipstack-checks"

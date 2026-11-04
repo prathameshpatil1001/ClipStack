@@ -48,6 +48,10 @@ struct MenuBarView: View {
 
             Divider().padding(.vertical, 4)
 
+            websitesSection
+
+            Divider().padding(.vertical, 4)
+
             MenuRow(title: "Settings\u{2026}", systemImage: "gearshape", action: actions.openSettings)
             MenuRow(title: "Quit ClipStack", systemImage: "power", shortcut: "⌘Q", action: actions.quit)
         }
@@ -56,6 +60,41 @@ struct MenuBarView: View {
     }
 
     // MARK: - Sections
+
+    /// More than this and the dropdown stops being a menu; the rest are one
+    /// click away in the Websites window.
+    private static let maximumWebsitesInMenu = 10
+
+    /// Saved websites, one click each, then the way to manage them.
+    private var websitesSection: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            if !environment.websites.websites.isEmpty {
+                Text("Websites")
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundStyle(.secondary)
+                    .padding(.horizontal, 6)
+                    .padding(.vertical, 3)
+
+                ForEach(environment.websites.websites.prefix(Self.maximumWebsitesInMenu)) { website in
+                    MenuRow(
+                        title: website.displayName,
+                        systemImage: "globe",
+                        shortcut: website.browser.bundleIdentifier == nil
+                            ? nil
+                            : BrowserLauncher.label(for: website.browser),
+                        action: { actions.openWebsite(website) }
+                    )
+                    .help(website.url?.absoluteString ?? website.address)
+                }
+            }
+
+            MenuRow(
+                title: websitesManageTitle,
+                systemImage: "list.bullet.rectangle",
+                action: actions.openWebsites
+            )
+        }
+    }
 
     private var header: some View {
         HStack(spacing: 6) {
@@ -72,6 +111,13 @@ struct MenuBarView: View {
         }
         .padding(.horizontal, 6)
         .padding(.top, 2)
+    }
+
+    private var websitesManageTitle: String {
+        let count = environment.websites.websites.count
+        if count == 0 { return "Add Websites\u{2026}" }
+        let hidden = count - Self.maximumWebsitesInMenu
+        return hidden > 0 ? "All Websites (\(hidden) more)\u{2026}" : "Manage Websites\u{2026}"
     }
 
     /// Shown when Accessibility is off: Stack Mode's ⌘C capture cannot work, but
@@ -129,7 +175,9 @@ struct MenuBarView: View {
                     }
                 }
                 Text(environment.stack.isEnabled
-                     ? "Every ⌘C is added to the stack"
+                     ? (preferences.captureCopiesWithoutShortcut
+                        ? "Everything you copy is added to the stack"
+                        : "Every ⌘C is added to the stack")
                      : "⌘C behaves normally")
                     .font(.system(size: 11))
                     .foregroundStyle(.secondary)

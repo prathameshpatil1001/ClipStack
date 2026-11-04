@@ -74,6 +74,53 @@ enum ClipboardChecks {
         captured = await clipboard.awaitCopy(consumedThrough: watermark)
         runner.check("re-copying identical text registers", captured?.text ?? "nil", equals: "only once")
 
+        // ── The clipboard watcher: copies that never pressed ⌘C ──────────────
+        // Another app (Shottr, Edit ▸ Copy) writing text is taken.
+        consumed = clipboard.changeCount
+        runner.check("watcher: nothing new is unchanged",
+                     clipboard.inspectChange(after: consumed), equals: .unchanged)
+
+        pasteboard.clearContents()
+        pasteboard.setString("text from Shottr", forType: .string)
+        runner.check("watcher: another app's text is taken",
+                     clipboard.inspectChange(after: consumed),
+                     equals: .text(text: "text from Shottr", changeCount: pasteboard.changeCount))
+        consumed = pasteboard.changeCount
+
+        // Several such copies in a row are each seen on their own.
+        pasteboard.clearContents()
+        pasteboard.setString("second screenshot", forType: .string)
+        runner.check("watcher: a second keystroke-less copy is taken too",
+                     clipboard.inspectChange(after: consumed),
+                     equals: .text(text: "second screenshot", changeCount: pasteboard.changeCount))
+        consumed = pasteboard.changeCount
+
+        // ClipStack's own write (pasting the stack, recalling a snippet) is not
+        // the user copying, and must not feed the stack back into itself.
+        _ = clipboard.write("written by ClipStack")
+        runner.check("watcher: ClipStack's own write is ignored",
+                     clipboard.inspectChange(after: consumed),
+                     equals: .ignored(changeCount: pasteboard.changeCount))
+        consumed = pasteboard.changeCount
+
+        // Password managers flag secrets as concealed; they never reach a stack.
+        pasteboard.declareTypes(
+            [.string, NSPasteboard.PasteboardType("org.nspasteboard.ConcealedType")],
+            owner: nil
+        )
+        pasteboard.setString("hunter2", forType: .string)
+        runner.check("watcher: concealed items are ignored",
+                     clipboard.inspectChange(after: consumed),
+                     equals: .ignored(changeCount: pasteboard.changeCount))
+        consumed = pasteboard.changeCount
+
+        // An image is something new, but not text.
+        pasteboard.clearContents()
+        pasteboard.setData(Data([0x89, 0x50, 0x4E, 0x47]), forType: .png)
+        runner.check("watcher: a non-text copy is reported as such",
+                     clipboard.inspectChange(after: consumed),
+                     equals: .notText(changeCount: pasteboard.changeCount))
+
         pasteboard.releaseGlobally()
         return runner.failures
     }

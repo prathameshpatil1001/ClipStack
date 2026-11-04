@@ -8,6 +8,18 @@ and this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 ## [Unreleased]
 
 ### Added
+- **Websites.** Save the sites you open all the time and open them from the menu
+  bar, each in the browser you choose (or whatever the system default is) and,
+  optionally, in a specific browser **profile**: Safari 17+ profiles, Chrome,
+  Brave, Edge, Vivaldi and Chromium profiles, and Firefox profiles. Profiles are
+  detected from each browser; Safari's are read from its File menu and opened
+  through it (needs Accessibility, and macOS asks once to let ClipStack control
+  Safari). Manage them in the new Websites window: add, edit, reorder, delete.
+- **Stack Mode captures copies that never press ⌘C** — Shottr and other
+  screenshot-to-text tools, Edit ▸ Copy, right-click ▸ Copy, "Copy" buttons. A
+  clipboard watcher runs while Stack Mode is on. On by default; Settings ▸ Stack
+  ▸ "Also add copies made without ⌘C". Items a password manager marks as
+  concealed or transient are skipped by the watcher.
 - **Auto-paste from the recall panel.** ↩ on a highlighted snippet now pastes it
   straight into the app you were working in, rather than only loading the
   clipboard. On by default; turn it off in Settings ▸ Saved Texts. Falls back to
@@ -39,6 +51,23 @@ and this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
   below it, with Spotlight-like open, resize and selection animations.
 
 ### Fixed
+- **Text copied with Shottr didn't reach the stack until the next ⌘C,** and then
+  only the latest of several. Capture was keystroke-driven, so a copy without
+  ⌘C was never seen; it sat newer than the capture watermark until a later ⌘C
+  swept it up alongside its own copy. The new clipboard watcher takes each one
+  as it happens. ClipStack's own clipboard writes (pasting the stack, recalling a
+  saved text) are recognised and never fed back into the stack.
+- **The menu bar disappeared when the Saved Texts window (or its New / Edit
+  sheet) was open,** as if a full-screen app were in front, until the pointer was
+  pushed to the top of the screen. An accessory (menu-bar-only) app has no menu
+  bar for macOS to show while it is frontmost. ClipStack now becomes a regular
+  app while one of its windows is open, and goes back to menu-bar-only when the
+  last one closes, handing focus back to the app you came from.
+- **↑/↓ sometimes stopped moving the selection in the ⌥Space panel** until the
+  mouse was moved. Rows select on hover, and SwiftUI reports a hover whenever a
+  row slides under a resting pointer — the panel growing, the list scrolling, a
+  re-render — which snapped the highlight back to the row under the mouse after
+  every key press. Hover now only selects once the pointer has actually moved.
 - **Saved texts could vanish, typically after a restart.** The SwiftData store
   was opened without a location, which for an unsandboxed app is the shared
   `~/Library/Application Support/default.store`. Other processes use that file

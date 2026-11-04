@@ -61,6 +61,7 @@ final class Preferences: ObservableObject {
         static let hasLaunchedBefore  = "hasLaunchedBefore"
         static let iCloudSync         = "iCloudSyncEnabled"
         static let recallAutoPaste    = "recallAutoPaste"
+        static let captureWithoutKey  = "stackCapturesCopiesWithoutShortcut"
     }
 
     init(defaults: UserDefaults = .standard) {
@@ -79,6 +80,7 @@ final class Preferences: ObservableObject {
         iCloudSyncEnabled = defaults.object(forKey: Key.iCloudSync) as? Bool ?? false
         recallAutoPaste = defaults.object(forKey: Key.recallAutoPaste) as? Bool ?? true
         clearStackAfterPaste = defaults.object(forKey: Key.clearAfterPaste) as? Bool ?? false
+        captureCopiesWithoutShortcut = defaults.object(forKey: Key.captureWithoutKey) as? Bool ?? true
 
         pasteStackHotKey = Self.decode(defaults, Key.hotKeyPasteStack) ?? .defaultPasteStack
         resetStackHotKey = Self.decode(defaults, Key.hotKeyResetStack) ?? .defaultResetStack
@@ -119,6 +121,12 @@ final class Preferences: ObservableObject {
 
     @Published var clearStackAfterPaste: Bool {
         didSet { defaults.set(clearStackAfterPaste, forKey: Key.clearAfterPaste) }
+    }
+
+    /// Whether Stack Mode also takes copies that never pressed ⌘C — Shottr and
+    /// other screenshot-to-text tools, Edit ▸ Copy, right-click ▸ Copy.
+    @Published var captureCopiesWithoutShortcut: Bool {
+        didSet { defaults.set(captureCopiesWithoutShortcut, forKey: Key.captureWithoutKey) }
     }
 
     /// The resolved separator string used when joining the stack.

@@ -1,13 +1,20 @@
 # ClipStack
 
-A macOS menu bar utility with two features:
+A macOS menu bar utility with three features:
 
-1. **Stack Mode** — while it is on, every <kbd>⌘C</kbd> appends to an ordered stack instead of
-   overwriting the clipboard. Paste the whole stack back in one go, joined with a separator you choose.
+1. **Stack Mode** — while it is on, everything you copy appends to an ordered stack instead of
+   overwriting the clipboard: <kbd>⌘C</kbd>, and also copies that never press it (Shottr and other
+   screenshot-to-text tools, Edit ▸ Copy, right-click ▸ Copy). Paste the whole stack back in one
+   go, joined with a separator you choose.
 2. **Saved Texts** — a local snippet library with a Spotlight-style recall panel on
    <kbd>⌥Space</kbd>, live fuzzy search, and optional iCloud sync across your Macs.
+3. **Websites** — sites you open all the time, one click from the menu bar, each in the browser
+   you pick for it (or the system default) and, for Safari, Chrome, Brave, Edge, Vivaldi and
+   Firefox, in a specific **profile**.
 
-No Dock icon, no app switcher entry — it lives entirely in the menu bar (`LSUIElement`).
+No Dock icon, no app switcher entry — it lives in the menu bar (`LSUIElement`). The one exception:
+while a ClipStack window (Saved Texts, Websites, Settings) is open, it shows a Dock icon and a
+normal menu bar, and goes back to menu-bar-only when you close it.
 
 ---
 
@@ -93,6 +100,8 @@ Settings ▸ Permissions shows both switches and which capture route is live.
 | Paste Stack loading the clipboard | No |
 | Capturing ⌘C into the stack | **Yes** — Accessibility or Input Monitoring |
 | Auto-pasting (Paste Stack, and ↩ in the recall panel) | **Yes** — Accessibility |
+| Websites in the default browser, or in a Chrome/Brave/Edge/Firefox profile | No |
+| Websites in a **Safari** profile | **Yes** — Accessibility, plus Automation for Safari (macOS asks once) |
 
 If permission is missing, Stack Mode refuses to switch on and says why;
 everything else carries on. Grant it later and ClipStack arms itself within
@@ -180,6 +189,9 @@ Clearing the Toggle Stack Mode shortcut sticks — it will not reappear on the n
 - **Join items with** — new line (default), blank line, space, comma, or a custom string
 - **Paste automatically** — press <kbd>⌘V</kbd> for you, or just load the clipboard (on by default)
 - **Empty the stack after pasting** — off by default
+- **Also add copies made without ⌘C** — Shottr, Edit ▸ Copy, right-click ▸ Copy (**on** by default).
+  ClipStack watches the clipboard while Stack Mode is on; items a password manager marks as
+  private (`org.nspasteboard.ConcealedType`) are skipped
 - **Auto-clear** — drop the stack after 1/5/15/60 minutes of inactivity (**off** by default)
 - **Paste straight into the app on ↩** — recall-panel auto-paste (**on** by default)
 - **Sync saved texts across my Macs** — iCloud (**off** by default, see below)
@@ -190,6 +202,26 @@ Clearing the Toggle Stack Mode shortcut sticks — it will not reappear on the n
 - iCloud sync toggle and live status
 
 **Shortcuts** — rebind anything; conflicts with macOS or another app are reported inline.
+
+## Websites
+
+Menu bar ▸ **Add Websites…** (later **Manage Websites…**). Each website has a name, an address
+(`github.com` is fine — `https://` is added) and where it opens:
+
+| Open in | How ClipStack opens it |
+|---|---|
+| Default browser | Whatever the system default is *at the time*, so changing it later is followed |
+| A browser, no profile | That browser, in its usual window |
+| Chrome, Brave, Edge, Vivaldi, Chromium profile | `--profile-directory=…` — profiles are read from the browser's `Local State` |
+| Firefox profile | `-P <name>` — profiles are read from `profiles.ini` |
+| Safari profile | File ▸ **New *Profile* Window**, then the new window is pointed at the address |
+
+Safari (17+) has no command-line flag or URL scheme for profiles, so ClipStack does what you would
+do by hand: it presses Safari's own **New *Work* Window** menu item through Accessibility, then
+loads the address into that window with AppleScript. That needs Accessibility (which ClipStack
+already asks for) and, the first time, macOS asks whether ClipStack may control Safari. To pick
+the profile, type its name as Safari's File menu shows it, or open Safari and choose it from
+**Detected**.
 
 **Permissions** — Accessibility status, with a direct link to System Settings.
 
@@ -222,6 +254,8 @@ ClipStack/
 ├── ClipStack.entitlements        iCloud KVS — see "Enabling the capability"
 ├── Models/
 │   ├── Snippet.swift             the value type the whole app works with
+│   ├── Website.swift             a saved website and the browser/profile it opens in
+│   ├── BrowserProfiles.swift     which browsers have profiles, and parsing their lists
 │   ├── KeyCombo.swift            codable key + modifiers, Carbon translation
 │   └── Preferences.swift         every setting, backed by UserDefaults
 ├── Core/
@@ -236,7 +270,9 @@ ClipStack/
 │   ├── SwiftDataSnippetPersistence.swift  SwiftData backend (macOS 14+)
 │   ├── LegacyDefaultStoreReader.swift   read-only import from the old shared store
 │   ├── CloudSyncCoordinator.swift       iCloud key-value sync
-│   └── SnippetSyncMerge.swift           pure reconciliation rules
+│   ├── SnippetSyncMerge.swift           pure reconciliation rules
+│   ├── WebsiteStore.swift               saved websites, in UserDefaults
+│   └── BrowserLauncher.swift            browser discovery, and opening in a profile
 └── UI/
     ├── StatusItemController.swift  menu bar icon, runtime-drawn numeric badge
     ├── MenuBarView.swift           the dropdown
@@ -245,6 +281,7 @@ ClipStack/
     ├── GlassSurface.swift          Liquid Glass surface, with a pre-26 fallback
     ├── SavedTextsWindow.swift      management window + shared window controller
     ├── SnippetEditorView.swift     add/edit form
+    ├── WebsitesWindow.swift        website list and editor (browser + profile pickers)
     ├── SettingsView.swift          settings panes
     ├── ShortcutRecorderView.swift  click-to-record shortcut control
     └── HUDController.swift         the transient confirmation under the icon

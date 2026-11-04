@@ -3,9 +3,14 @@
 <plist version="1.0">
 <dict>
 	<!-- iCloud key-value storage, used to sync saved texts between the user's Macs.
-	     ClipStack is not sandboxed (a global event tap requires that), so this is
-	     the only entitlement it needs. -->
+	     ClipStack is not sandboxed (a global event tap requires that). -->
 	<key>com.apple.developer.ubiquity-kvstore-identifier</key>
 	<string>$(TeamIdentifierPrefix)$(CFBundleIdentifier)</string>
+
+	<!-- Hardened runtime blocks Apple Events without this. Used only to point a
+	     new Safari profile window at a saved website (Safari has no other way to
+	     open a URL in a given profile); macOS still asks the user first. -->
+	<key>com.apple.security.automation.apple-events</key>
+	<true/>
 </dict>
 </plist>

@@ -68,6 +68,18 @@ struct SettingsView: View {
                 Toggle("Empty the stack after pasting", isOn: $preferences.clearStackAfterPaste)
             }
 
+            Section("Capture") {
+                Toggle("Also add copies made without ⌘C", isOn: $preferences.captureCopiesWithoutShortcut)
+                Text("""
+                Screenshot-to-text tools like Shottr, Edit ▸ Copy and right-click ▸ Copy put text on the \
+                clipboard without pressing ⌘C. With this on, ClipStack watches the clipboard while Stack \
+                Mode is on and stacks those too. Items a password manager marks as private are skipped.
+                """)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+            }
+
             Section("Auto-clear") {
                 Picker("Clear the stack after", selection: Binding(
                     get: { preferences.autoClearTimeout },

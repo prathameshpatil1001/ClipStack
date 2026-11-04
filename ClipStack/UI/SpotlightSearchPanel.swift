@@ -95,6 +95,18 @@ final class RecallViewModel: ObservableObject {
 
     private let store: SnippetStore
 
+    /// Where the pointer was the last time the selection moved for any reason
+    /// other than the mouse: an arrow key, or the results changing.
+    ///
+    /// SwiftUI's hover callback fires whenever a row *arrives* under the
+    /// pointer, not only when the pointer moves onto a row. The panel growing as
+    /// results come in, the list scrolling to keep the selection visible, or the
+    /// rows simply re-rendering all slide a row under a pointer that has not
+    /// moved, and the hover then snatched the highlight back to that row. With
+    /// the pointer resting over the results, ↑/↓ appeared to be locked. A hover
+    /// now only counts once the pointer has really moved since then.
+    private var pointerLocationAtLastKeyboardChange: NSPoint?
+
     init(store: SnippetStore) {
         self.store = store
     }
@@ -111,6 +123,7 @@ final class RecallViewModel: ObservableObject {
         results = hasQuery ? store.search(trimmed) : []
         // Any change to the result set puts the highlight back on the best match.
         selectedIndex = 0
+        pointerLocationAtLastKeyboardChange = NSEvent.mouseLocation
         panelHeight = PanelMetrics.height(resultCount: results.count, hasQuery: hasQuery)
     }
 
@@ -126,6 +139,19 @@ final class RecallViewModel: ObservableObject {
         guard !results.isEmpty else { return }
         let count = results.count
         selectedIndex = ((selectedIndex + offset) % count + count) % count
+        pointerLocationAtLastKeyboardChange = NSEvent.mouseLocation
+    }
+
+    /// The pointer entered row `index`. Ignored unless the pointer itself moved
+    /// there — see `pointerLocationAtLastKeyboardChange`.
+    func pointerEntered(row index: Int) {
+        let pointer = NSEvent.mouseLocation
+        if let anchor = pointerLocationAtLastKeyboardChange, anchor == pointer {
+            return
+        }
+        pointerLocationAtLastKeyboardChange = nil
+        guard results.indices.contains(index) else { return }
+        selectedIndex = index
     }
 
     func markUsed(_ snippet: Snippet) {
@@ -476,8 +502,10 @@ struct SpotlightSearchView: View {
                         }
                         // Hovering moves the highlight, so mouse and keyboard
                         // never disagree about what Return will do.
+                        // Only a pointer that actually moved counts, or the
+                        // keyboard would lose every argument with a resting mouse.
                         .onHover { hovering in
-                            if hovering { viewModel.selectedIndex = index }
+                            if hovering { viewModel.pointerEntered(row: index) }
                         }
                     }
                 }

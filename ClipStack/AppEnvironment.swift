@@ -16,6 +16,7 @@ final class AppEnvironment: ObservableObject {
     let clipboard: ClipboardManager
     let stack: StackModeController
     let snippets: SnippetStore
+    let websites: WebsiteStore
     let hotKeys: HotKeyManager
     let cloudSync: CloudSyncCoordinator
 
@@ -41,6 +42,7 @@ final class AppEnvironment: ObservableObject {
             backendDescription: backend.description,
             cloudSync: cloudSync
         )
+        self.websites = WebsiteStore()
         self.hotKeys = HotKeyManager()
         self.stack = StackModeController(
             preferences: preferences,
@@ -60,6 +62,7 @@ final class AppEnvironment: ObservableObject {
             permissions.objectWillChange,
             self.stack.objectWillChange,
             self.snippets.objectWillChange,
+            self.websites.objectWillChange,
             cloudSync.objectWillChange,
         ] {
             nested

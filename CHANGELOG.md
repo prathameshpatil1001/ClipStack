@@ -17,6 +17,7 @@ and this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
   Safari). Manage them in the new Websites window: add, edit, reorder, delete.
   They also show up in the ⌥Space panel, ranked alongside saved texts, where ↩
   opens the highlighted one.
+- **⌘1…⌘9 in the ⌥Space panel** open the row with that number.
 - **Stack Mode captures copies that never press ⌘C** — Shottr and other
   screenshot-to-text tools, Edit ▸ Copy, right-click ▸ Copy, "Copy" buttons. A
   clipboard watcher runs while Stack Mode is on. On by default; Settings ▸ Stack
@@ -43,6 +44,9 @@ and this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
   this field existed still load.
 
 ### Changed
+- **The ⌥Space panel looks like macOS Spotlight:** a glass search capsule, and
+  the results in a separate rounded card beneath it, with a soft selection
+  highlight and ⌘-number hints on each row.
 - **The ⌥Space recall panel opens as a bare search field.** It used to list the
   whole library the moment it appeared — every saved text on screen over
   whatever the user was doing, unasked. Results now appear only once something
@@ -53,6 +57,18 @@ and this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
   below it, with Spotlight-like open, resize and selection animations.
 
 ### Fixed
+- **The ⌥Space panel jumped up and down as results changed,** and flashed a
+  rectangular outline. The window was resized for every result count, and its
+  hosting view resized it too, from the bottom edge, a frame before the
+  top-anchored resize corrected it; the window shadow, recomputed mid-resize,
+  drew the outline. The window is now a fixed transparent canvas with no
+  shadow of its own, and only the results card animates inside it.
+- **A Safari profile website opened as a second tab beside an empty one,**
+  always in a new window. The Apple Events entitlement was in an entitlements
+  file the target never referenced, so the hardened runtime refused the script
+  silently and the fallback added a tab. The app is now signed with
+  `HardenedRuntime.entitlements`, and an already-open window of the profile is
+  reused: the address opens in a new tab there.
 - **Text copied with Shottr didn't reach the stack until the next ⌘C,** and then
   only the latest of several. Capture was keystroke-driven, so a copy without
   ⌘C was never seen; it sat newer than the capture watermark until a later ⌘C

@@ -156,7 +156,14 @@ enum BrowserLauncher {
 
     // MARK: - Opening
 
-    static func open(_ website: Website) async throws {
+    /// Opens `website` in its browser and profile.
+    ///
+    /// - Returns: a notice for the user when it opened, but not quite as asked
+    ///   (Safari would not take the address directly, so it went in another
+    ///   tab), or `nil` when it all went to plan.
+    /// - Throws: when it could not be opened at all.
+    @discardableResult
+    static func open(_ website: Website) async throws -> String? {
         guard let url = website.url else {
             throw BrowserLaunchError.invalidAddress(website.address)
         }
@@ -165,7 +172,7 @@ enum BrowserLauncher {
             guard NSWorkspace.shared.open(url) else {
                 throw BrowserLaunchError.couldNotOpen("no default browser")
             }
-            return
+            return nil
         }
 
         guard let appURL = NSWorkspace.shared.urlForApplication(withBundleIdentifier: identifier) else {
@@ -175,7 +182,7 @@ enum BrowserLauncher {
         let kind = BrowserProfileKind(bundleIdentifier: identifier)
         guard website.browser.hasProfile, let profile = website.browser.profileID else {
             try await open([url], withApplicationAt: appURL)
-            return
+            return nil
         }
 
         switch kind {
@@ -192,8 +199,9 @@ enum BrowserLauncher {
             try await launchNewInstance(of: appURL, arguments: ["-P", profile, url.absoluteString])
 
         case .safari:
-            try await SafariProfiles.open(url, inProfile: profile, bundleIdentifier: identifier, appURL: appURL)
+            return try await SafariProfiles.open(url, inProfile: profile, bundleIdentifier: identifier, appURL: appURL)
         }
+        return nil
     }
 
     static func open(_ urls: [URL], withApplicationAt appURL: URL) async throws {
@@ -239,11 +247,18 @@ enum BrowserLauncher {
 
 // MARK: - Safari
 
-/// Safari profiles, driven through its File menu.
+/// Safari profiles, driven through its windows and its File menu.
 ///
-/// Uses the Accessibility permission ClipStack already asks for (to read and
-/// press menu items), plus Automation for Safari (macOS asks the first time)
-/// to point the new window at the URL.
+/// Uses the Accessibility permission ClipStack already asks for (to find a
+/// profile's window, bring it forward, and press menu items), plus Automation
+/// for Safari (macOS asks the first time) to put the address in a tab.
+///
+/// The address always lands in a window of the right profile:
+///
+///   1. If one is open, the frontmost such window comes forward and gets a new
+///      tab with the address — the way a link opens.
+///   2. If none is, File ▸ New <Profile> Window opens one, and the address goes
+///      into its first tab, rather than beside an empty one.
 @MainActor
 enum SafariProfiles {
 
@@ -256,37 +271,128 @@ enum SafariProfiles {
         return BrowserProfileParser.safariProfileNames(menuTitles: titles)
     }
 
-    static func open(_ url: URL, inProfile profile: String, bundleIdentifier: String, appURL: URL) async throws {
+    static func open(_ url: URL, inProfile profile: String, bundleIdentifier: String, appURL: URL) async throws -> String? {
         guard AXIsProcessTrusted() else { throw BrowserLaunchError.needsAccessibility }
 
         let safari = try await launchIfNeeded(bundleIdentifier: bundleIdentifier, appURL: appURL)
         let application = AXUIElementCreateApplication(safari.processIdentifier)
 
+        // 1. A window of this profile is already open: a new tab in it.
+        if let window = frontmostWindow(in: application, showingProfile: profile) {
+            await bringForward(window, of: application, app: safari)
+            if let failure = runScript(newTabInFrontWindow(url), bundleIdentifier: bundleIdentifier) {
+                // The window is in front, so Safari's own way of opening an
+                // address from another app — a new tab there — is the same thing.
+                try await BrowserLauncher.open([url], withApplicationAt: appURL)
+                return failure
+            }
+            return nil
+        }
+
+        // 2. None open: a new window of this profile, from Safari's File menu.
         // A Safari that has only just launched takes a moment to build its menus.
         guard let menuItem = await poll(timeout: .seconds(6), { profileMenuItem(in: application, profile: profile) }) else {
             throw BrowserLaunchError.safariProfileNotFound(profile)
         }
 
-        let windowsBefore = windowCount(of: application)
+        let windowsBefore = windows(of: application).count
         safari.activate(options: [])
         guard AXUIElementPerformAction(menuItem, kAXPressAction as CFString) == .success else {
             throw BrowserLaunchError.couldNotOpen("Safari did not open a \(profile) window")
         }
 
-        // Wait for the new window, so the URL lands in it and not in whatever
-        // window was in front before.
-        _ = await poll(timeout: .seconds(3)) { () -> Bool? in windowCount(of: application) > windowsBefore ? true : nil }
-        try? await Task.sleep(for: .milliseconds(150))
+        // Wait for the new window to exist and be in front, so the address goes
+        // into it and not into whatever window was in front before.
+        _ = await poll(timeout: .seconds(3)) { () -> Bool? in
+            windows(of: application).count > windowsBefore ? true : nil
+        }
+        try? await Task.sleep(for: .milliseconds(200))
 
-        if !pointFrontWindow(at: url, bundleIdentifier: bundleIdentifier) {
-            // Automation for Safari was refused. The new profile window is in
-            // front, so handing Safari the URL normally still opens it there in
-            // most setups — better than not opening it at all.
+        if let failure = runScript(addressInFrontTab(url), bundleIdentifier: bundleIdentifier) {
             try await BrowserLauncher.open([url], withApplicationAt: appURL)
+            return failure
+        }
+        return nil
+    }
+
+    // MARK: Finding a profile's window
+
+    /// The frontmost open, unminimised Safari window that belongs to `profile`.
+    ///
+    /// Safari does not say which profile a window belongs to in its scripting
+    /// dictionary, but it shows it: a window of a non-default profile carries
+    /// the profile's name in its toolbar. That label is what is looked for, in
+    /// the toolbar only (never the page, never the tab titles, never the address
+    /// field), so a page that happens to mention "Work" cannot match.
+    private static func frontmostWindow(in application: AXUIElement, showingProfile profile: String) -> AXUIElement? {
+        // AX lists windows front to back.
+        windows(of: application).first { window in
+            stringValue(window, kAXSubroleAttribute) == (kAXStandardWindowSubrole as String)
+                && boolValue(window, kAXMinimizedAttribute) != true
+                && windowShowsProfile(window, profile)
         }
     }
 
-    // MARK: Safari process
+    private static func windowShowsProfile(_ window: AXUIElement, _ profile: String) -> Bool {
+        // Window titles of the form "Work — Page title".
+        if let title = stringValue(window, kAXTitleAttribute) {
+            for separator in [" \u{2014} ", " \u{2013} ", " - "] where title.hasPrefix(profile + separator) {
+                return true
+            }
+        }
+
+        // The profile label in the toolbar, searched breadth-first and bounded.
+        var queue = elements(window, kAXChildrenAttribute)
+            .filter { stringValue($0, kAXRoleAttribute) == (kAXToolbarRole as String) }
+        var visited = 0
+        while !queue.isEmpty, visited < 400 {
+            let element = queue.removeFirst()
+            visited += 1
+
+            let role = stringValue(element, kAXRoleAttribute) ?? ""
+            // Tab titles and the address field show page content, not chrome.
+            if role == (kAXTabGroupRole as String) || role == (kAXTextFieldRole as String)
+                || role == (kAXRadioButtonRole as String) || role == "AXWebArea" {
+                continue
+            }
+
+            for attribute in [kAXTitleAttribute, kAXDescriptionAttribute, kAXValueAttribute, kAXHelpAttribute] {
+                if let text = stringValue(element, attribute), labelNamesProfile(text, profile) {
+                    return true
+                }
+            }
+            queue.append(contentsOf: elements(element, kAXChildrenAttribute))
+        }
+        return false
+    }
+
+    /// "Work", or a label that calls itself a profile and names it
+    /// ("Work profile", "Profile: Work").
+    private static func labelNamesProfile(_ label: String, _ profile: String) -> Bool {
+        let text = label.trimmingCharacters(in: .whitespacesAndNewlines)
+        if text.caseInsensitiveCompare(profile) == .orderedSame { return true }
+        guard text.range(of: "profile", options: .caseInsensitive) != nil else { return false }
+        let words = text.components(separatedBy: CharacterSet.alphanumerics.inverted)
+        let profileWords = profile.components(separatedBy: CharacterSet.alphanumerics.inverted)
+            .filter { !$0.isEmpty }
+        return !profileWords.isEmpty && profileWords.allSatisfy { word in
+            words.contains { $0.caseInsensitiveCompare(word) == .orderedSame }
+        }
+    }
+
+    /// Raises `window` and waits until Safari reports it as its main window, so
+    /// "front window" in the script that follows means this one.
+    private static func bringForward(_ window: AXUIElement, of application: AXUIElement, app: NSRunningApplication) async {
+        _ = AXUIElementPerformAction(window, kAXRaiseAction as CFString)
+        _ = AXUIElementSetAttributeValue(window, kAXMainAttribute as CFString, kCFBooleanTrue)
+        app.activate(options: [])
+        _ = await poll(timeout: .seconds(1)) { () -> Bool? in
+            guard let main = element(application, kAXMainWindowAttribute) else { return nil }
+            return CFEqual(main, window) ? true : nil
+        }
+    }
+
+        // MARK: Safari process
 
     private static func runningApp(_ bundleIdentifier: String) -> NSRunningApplication? {
         NSRunningApplication.runningApplications(withBundleIdentifier: bundleIdentifier)
@@ -316,21 +422,48 @@ enum SafariProfiles {
 
     // MARK: AppleScript
 
-    /// `set URL of current tab of front window`. Returns false if macOS refused
-    /// (Automation not granted) or Safari had no window.
-    private static func pointFrontWindow(at url: URL, bundleIdentifier: String) -> Bool {
-        let address = url.absoluteString
+    private static func quoted(_ url: URL) -> String {
+        let escaped = url.absoluteString
             .replacingOccurrences(of: "\\", with: "\\\\")
             .replacingOccurrences(of: "\"", with: "\\\"")
-        let source = """
-        tell application id "\(bundleIdentifier)"
-            set URL of current tab of front window to "\(address)"
+        return "\"\(escaped)\""
+    }
+
+    /// A new tab at the end of the front window, made current.
+    private static func newTabInFrontWindow(_ url: URL) -> String {
+        """
+        tell front window
+            set current tab to (make new tab at end of tabs with properties {URL:\(quoted(url))})
         end tell
         """
-        guard let script = NSAppleScript(source: source) else { return false }
+    }
+
+    /// The address in the front window's current tab — a fresh window's only tab.
+    private static func addressInFrontTab(_ url: URL) -> String {
+        "set URL of current tab of front window to \(quoted(url))"
+    }
+
+    /// Runs `body` inside `tell application id …`.
+    /// - Returns: `nil` on success, otherwise what to tell the user.
+    private static func runScript(_ body: String, bundleIdentifier: String) -> String? {
+        let source = """
+        tell application id "\(bundleIdentifier)"
+        \(body)
+        end tell
+        """
+        guard let script = NSAppleScript(source: source) else {
+            return "Opened in a new tab"
+        }
         var error: NSDictionary?
         _ = script.executeAndReturnError(&error)
-        return error == nil
+        guard let error else { return nil }
+
+        let code = error[NSAppleScript.errorNumber] as? Int ?? 0
+        if code == -1743 {
+            // errAEEventNotPermitted: Automation for Safari is off for ClipStack.
+            return "Allow ClipStack to control Safari: Settings ▸ Privacy ▸ Automation"
+        }
+        return "Safari script error \(code) — opened in a new tab"
     }
 
     // MARK: Accessibility
@@ -376,12 +509,32 @@ enum SafariProfiles {
             .flatMap { children(of: $0) }
     }
 
-    private static func windowCount(of application: AXUIElement) -> Int {
+    private static func windows(of application: AXUIElement) -> [AXUIElement] {
+        elements(application, kAXWindowsAttribute)
+    }
+
+    private static func elements(_ parent: AXUIElement, _ attribute: String) -> [AXUIElement] {
         var value: CFTypeRef?
-        guard AXUIElementCopyAttributeValue(application, kAXWindowsAttribute as CFString, &value) == .success,
-              let windows = value as? [AXUIElement]
-        else { return 0 }
-        return windows.count
+        guard AXUIElementCopyAttributeValue(parent, attribute as CFString, &value) == .success,
+              let elements = value as? [AXUIElement]
+        else { return [] }
+        return elements
+    }
+
+    private static func stringValue(_ element: AXUIElement, _ attribute: String) -> String? {
+        var value: CFTypeRef?
+        guard AXUIElementCopyAttributeValue(element, attribute as CFString, &value) == .success else {
+            return nil
+        }
+        return value as? String
+    }
+
+    private static func boolValue(_ element: AXUIElement, _ attribute: String) -> Bool? {
+        var value: CFTypeRef?
+        guard AXUIElementCopyAttributeValue(element, attribute as CFString, &value) == .success else {
+            return nil
+        }
+        return value as? Bool
     }
 
     private static func element(_ parent: AXUIElement, _ attribute: String) -> AXUIElement? {

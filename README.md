@@ -217,11 +217,13 @@ address, or the profile they open in — typing `work` finds every site that ope
 | A browser, no profile | That browser, in its usual window |
 | Chrome, Brave, Edge, Vivaldi, Chromium profile | `--profile-directory=…` — profiles are read from the browser's `Local State` |
 | Firefox profile | `-P <name>` — profiles are read from `profiles.ini` |
-| Safari profile | File ▸ **New *Profile* Window**, then the new window is pointed at the address |
+| Safari profile | A new tab in that profile's open window, or File ▸ **New *Profile* Window** if none is open |
 
 Safari (17+) has no command-line flag or URL scheme for profiles, so ClipStack does what you would
-do by hand: it presses Safari's own **New *Work* Window** menu item through Accessibility, then
-loads the address into that window with AppleScript. That needs Accessibility (which ClipStack
+do by hand. If a window of that profile is open (recognised by the profile name Safari shows in
+its toolbar), it brings that window forward and opens the address in a new tab. Otherwise it
+presses Safari's own **New *Work* Window** menu item through Accessibility and loads the address
+into the new window's tab. The address goes in with AppleScript. That needs Accessibility (which ClipStack
 already asks for) and, the first time, macOS asks whether ClipStack may control Safari. To pick
 the profile, type its name as Safari's File menu shows it, or open Safari and choose it from
 **Detected**.
@@ -254,7 +256,8 @@ ClipStack/
 ├── AppDelegate.swift             composition root: wires hotkeys, owns the windows
 ├── AppEnvironment.swift          the object graph handed to every view
 ├── Info.plist                    LSUIElement + permission usage descriptions
-├── ClipStack.entitlements        iCloud KVS — see "Enabling the capability"
+├── HardenedRuntime.entitlements  what the app is signed with: Apple Events (for Safari profiles)
+├── ClipStack.entitlements        iCloud KVS — not wired up, as it needs an iCloud App ID
 ├── Models/
 │   ├── Snippet.swift             the value type the whole app works with
 │   ├── Website.swift             a saved website and the browser/profile it opens in

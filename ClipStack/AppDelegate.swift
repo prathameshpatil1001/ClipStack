@@ -68,7 +68,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             self?.hud.show(message, symbol: symbol)
         }
         recallPanelController.onHUD = { [weak self] message, symbol in
-            self?.hud.show(message, symbol: symbol)
+            // "Copied ✓" is read at a glance; an explanation needs time.
+            self?.hud.show(message, symbol: symbol, duration: message.count > 30 ? 5 : 1.4)
         }
     }
 
@@ -191,10 +192,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private func openWebsite(_ website: Website) {
         Task { @MainActor in
             do {
-                try await BrowserLauncher.open(website)
+                if let notice = try await BrowserLauncher.open(website) {
+                    hud.show(notice, symbol: "info.circle.fill", duration: 5)
+                }
             } catch {
                 let message = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
-                hud.show(message, symbol: "exclamationmark.triangle.fill", duration: 3)
+                hud.show(message, symbol: "exclamationmark.triangle.fill", duration: 4)
             }
         }
     }

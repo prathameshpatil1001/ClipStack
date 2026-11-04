@@ -8,9 +8,9 @@ A macOS menu bar utility with three features:
    go, joined with a separator you choose.
 2. **Saved Texts** — a local snippet library with a Spotlight-style recall panel on
    <kbd>⌥Space</kbd>, live fuzzy search, and optional iCloud sync across your Macs.
-3. **Websites** — sites you open all the time, one click from the menu bar, each in the browser
-   you pick for it (or the system default) and, for Safari, Chrome, Brave, Edge, Vivaldi and
-   Firefox, in a specific **profile**.
+3. **Websites** — sites you open all the time, one click from the menu bar or a few keystrokes in
+   <kbd>⌥Space</kbd>, each in the browser you pick for it (or the system default) and, for Safari,
+   Chrome, Brave, Edge, Vivaldi and Firefox, in a specific **profile**.
 
 No Dock icon, no app switcher entry — it lives in the menu bar (`LSUIElement`). The one exception:
 while a ClipStack window (Saved Texts, Websites, Settings) is open, it shows a Dock icon and a
@@ -206,7 +206,10 @@ Clearing the Toggle Stack Mode shortcut sticks — it will not reappear on the n
 ## Websites
 
 Menu bar ▸ **Add Websites…** (later **Manage Websites…**). Each website has a name, an address
-(`github.com` is fine — `https://` is added) and where it opens:
+(`github.com` is fine — `https://` is added) and where it opens. Open one from the menu bar, or
+type in the <kbd>⌥Space</kbd> panel: websites are ranked alongside saved texts (by name, host,
+address, or the profile they open in — typing `work` finds every site that opens in Work), and
+<kbd>↩</kbd> opens the highlighted one.
 
 | Open in | How ClipStack opens it |
 |---|---|

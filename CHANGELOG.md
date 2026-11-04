@@ -15,6 +15,8 @@ and this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
   detected from each browser; Safari's are read from its File menu and opened
   through it (needs Accessibility, and macOS asks once to let ClipStack control
   Safari). Manage them in the new Websites window: add, edit, reorder, delete.
+  They also show up in the ⌥Space panel, ranked alongside saved texts, where ↩
+  opens the highlighted one.
 - **Stack Mode captures copies that never press ⌘C** — Shottr and other
   screenshot-to-text tools, Edit ▸ Copy, right-click ▸ Copy, "Copy" buttons. A
   clipboard watcher runs while Stack Mode is on. On by default; Settings ▸ Stack

@@ -31,7 +31,7 @@ struct BrowserTarget: Codable, Hashable {
 
     static let systemDefault = BrowserTarget()
 
-    var hasProfile: Bool {
+    nonisolated var hasProfile: Bool {
         guard let profileID else { return false }
         return !profileID.isEmpty
     }
@@ -46,10 +46,10 @@ struct Website: Identifiable, Codable, Hashable {
     var createdAt: Date = Date()
 
     /// The address as an openable URL, or `nil` if it is not a web address.
-    var url: URL? { Website.normalizedURL(from: address) }
+    nonisolated var url: URL? { Website.normalizedURL(from: address) }
 
     /// The name, or the host when no name was given.
-    var displayName: String {
+    nonisolated var displayName: String {
         let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
         if !trimmed.isEmpty { return trimmed }
         return url?.host ?? address
@@ -60,7 +60,7 @@ struct Website: Identifiable, Codable, Hashable {
     /// http(s) URL. Anything else (`javascript:`, `file:`, plain words with
     /// spaces) is refused: these are websites, and opening arbitrary schemes
     /// from a menu bar click is not something to do silently.
-    static func normalizedURL(from raw: String) -> URL? {
+    nonisolated static func normalizedURL(from raw: String) -> URL? {
         let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty, !trimmed.contains(where: \.isWhitespace) else { return nil }
 
@@ -84,7 +84,7 @@ struct Website: Identifiable, Codable, Hashable {
 
     /// `mailto:`, `javascript:` — letters before the first colon and nothing
     /// host-like (no dot, no slash). `example.com/a:b` is not one.
-    private static func startsWithBareScheme(_ text: String) -> Bool {
+    private nonisolated static func startsWithBareScheme(_ text: String) -> Bool {
         guard let colon = text.firstIndex(of: ":") else { return false }
         let head = text[..<colon]
         guard let first = head.first, first.isLetter else { return false }
@@ -92,7 +92,7 @@ struct Website: Identifiable, Codable, Hashable {
     }
 
     /// `localhost:3000`, `example.com:8080/path` — a colon that is a port.
-    private static func looksLikeHostAndPort(_ text: String) -> Bool {
+    private nonisolated static func looksLikeHostAndPort(_ text: String) -> Bool {
         guard let colon = text.firstIndex(of: ":") else { return false }
         let host = text[..<colon]
         let rest = text[text.index(after: colon)...]

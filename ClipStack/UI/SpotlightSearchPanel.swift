@@ -3,7 +3,9 @@
 //  ClipStack
 //
 //  The ⌥Space recall panel: a floating, centred, borderless, always-on-top
-//  window with one text field and a live-ranked result list.
+//  window with one text field and a live-ranked result list of saved texts and
+//  saved websites. ↩ on a text pastes it; ↩ on a website opens it in its browser
+//  and profile.
 //
 //  It is modelled on Spotlight, including the parts that are easy to miss:
 //
@@ -80,7 +82,7 @@ final class RecallViewModel: ObservableObject {
     @Published var query: String = "" {
         didSet { refreshResults() }
     }
-    @Published private(set) var results: [SnippetSearchResult] = []
+    @Published private(set) var results: [RecallResult] = []
     @Published var selectedIndex: Int = 0
 
     /// Whether the field holds anything worth searching for. Everything below
@@ -94,6 +96,7 @@ final class RecallViewModel: ObservableObject {
     @Published var isRevealed = false
 
     private let store: SnippetStore
+    private let websites: WebsiteStore
 
     /// Where the pointer was the last time the selection moved for any reason
     /// other than the mouse: an arrow key, or the results changing.
@@ -107,20 +110,26 @@ final class RecallViewModel: ObservableObject {
     /// now only counts once the pointer has really moved since then.
     private var pointerLocationAtLastKeyboardChange: NSPoint?
 
-    init(store: SnippetStore) {
+    init(store: SnippetStore, websites: WebsiteStore) {
         self.store = store
+        self.websites = websites
     }
 
-    var selectedSnippet: Snippet? {
+    var selectedItem: RecallItem? {
         guard results.indices.contains(selectedIndex) else { return nil }
-        return results[selectedIndex].snippet
+        return results[selectedIndex].item
     }
 
     func refreshResults() {
         let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
         hasQuery = !trimmed.isEmpty
         // An empty field shows nothing at all — see the note at the top.
-        results = hasQuery ? store.search(trimmed) : []
+        results = hasQuery
+            ? FuzzySearchEngine.merge(
+                snippets: store.search(trimmed),
+                websites: FuzzySearchEngine.search(trimmed, in: websites.websites)
+            )
+            : []
         // Any change to the result set puts the highlight back on the best match.
         selectedIndex = 0
         pointerLocationAtLastKeyboardChange = NSEvent.mouseLocation
@@ -181,8 +190,8 @@ final class SpotlightSearchPanelController: NSObject, NSWindowDelegate {
     /// Shows the "Copied ✓" confirmation.
     var onHUD: ((String, String) -> Void)?
 
-    init(store: SnippetStore, clipboard: ClipboardManager, preferences: Preferences) {
-        self.viewModel = RecallViewModel(store: store)
+    init(store: SnippetStore, websites: WebsiteStore, clipboard: ClipboardManager, preferences: Preferences) {
+        self.viewModel = RecallViewModel(store: store, websites: websites)
         self.clipboard = clipboard
         self.preferences = preferences
         super.init()
@@ -258,11 +267,42 @@ final class SpotlightSearchPanelController: NSObject, NSWindowDelegate {
         previouslyActiveApp = nil
     }
 
-    /// Enter on the highlighted result: copy it and, if auto-paste is on, put it
-    /// straight into the app the user came from.
+    /// Enter on the highlighted result: a website opens; a saved text is copied
+    /// and, if auto-paste is on, put straight into the app the user came from.
     private func activateSelection() {
-        guard let snippet = viewModel.selectedSnippet else { return }
+        guard let item = viewModel.selectedItem else { return }
+        switch item {
+        case .website(let website):
+            open(website)
+        case .snippet(let snippet):
+            paste(snippet)
+        }
+    }
 
+    /// Opens the website in its browser and profile. Focus is not handed back to
+    /// the previous app first — the browser is about to take it — unless
+    /// opening fails, so the user is never left in a ClipStack with no window.
+    private func open(_ website: Website) {
+        let returnTo = previouslyActiveApp
+        close(restoringFocus: false)
+        previouslyActiveApp = nil
+
+        Task { @MainActor in
+            do {
+                try await BrowserLauncher.open(website)
+            } catch {
+                if let returnTo, returnTo.bundleIdentifier != Bundle.main.bundleIdentifier {
+                    returnTo.activate(options: [])
+                } else {
+                    NSApp.hide(nil)
+                }
+                let message = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
+                onHUD?(message, "exclamationmark.triangle.fill")
+            }
+        }
+    }
+
+    private func paste(_ snippet: Snippet) {
         clipboard.write(snippet.body)
         viewModel.markUsed(snippet)      // feeds the useCount / recency boosts
 
@@ -466,7 +506,7 @@ struct SpotlightSearchView: View {
                 .font(.system(size: 19, weight: .regular))
                 .foregroundStyle(.secondary)
 
-            TextField("Search saved texts\u{2026}", text: $viewModel.query)
+            TextField("Search saved texts and websites\u{2026}", text: $viewModel.query)
                 .textFieldStyle(.plain)
                 .font(.system(size: 21, weight: .light))
                 .focused($isFieldFocused)
@@ -490,7 +530,7 @@ struct SpotlightSearchView: View {
                 LazyVStack(spacing: 0) {
                     ForEach(Array(viewModel.results.enumerated()), id: \.element.id) { index, result in
                         SpotlightResultRow(
-                            snippet: result.snippet,
+                            item: result.item,
                             isSelected: index == viewModel.selectedIndex,
                             namespace: selectionNamespace
                         )
@@ -526,7 +566,7 @@ struct SpotlightSearchView: View {
         HStack(spacing: 8) {
             Image(systemName: "questionmark.circle")
                 .foregroundStyle(.secondary)
-            Text("No saved text matches \u{201C}\(viewModel.query)\u{201D}")
+            Text("Nothing matches \u{201C}\(viewModel.query)\u{201D}")
                 .foregroundStyle(.secondary)
                 .lineLimit(1)
             Spacer()
@@ -538,22 +578,22 @@ struct SpotlightSearchView: View {
 }
 
 private struct SpotlightResultRow: View {
-    let snippet: Snippet
+    let item: RecallItem
     let isSelected: Bool
     let namespace: Namespace.ID
 
     var body: some View {
         HStack(spacing: 13) {
-            Image(systemName: snippet.isPinned ? "pin.fill" : "doc.text")
+            Image(systemName: symbolName)
                 .font(.system(size: 14))
                 .foregroundStyle(isSelected ? AnyShapeStyle(.white) : AnyShapeStyle(.secondary))
                 .frame(width: 22)
 
             VStack(alignment: .leading, spacing: 2) {
-                Text(snippet.displayTitle.truncated(to: 70))
+                Text(item.title.truncated(to: 70))
                     .font(.system(size: 13.5, weight: .medium))
                     .lineLimit(1)
-                Text(snippet.preview.truncated(to: 90))
+                Text(subtitle.truncated(to: 90))
                     .font(.system(size: 11.5))
                     .foregroundStyle(isSelected ? AnyShapeStyle(.white.opacity(0.8)) : AnyShapeStyle(.secondary))
                     .lineLimit(1)
@@ -561,8 +601,8 @@ private struct SpotlightResultRow: View {
 
             Spacer(minLength: 8)
 
-            if !snippet.tags.isEmpty {
-                Text(snippet.tags.prefix(2).joined(separator: " · "))
+            if let detail {
+                Text(detail)
                     .font(.system(size: 10.5))
                     .foregroundStyle(isSelected ? AnyShapeStyle(.white.opacity(0.75)) : AnyShapeStyle(.tertiary))
                     .lineLimit(1)
@@ -585,5 +625,39 @@ private struct SpotlightResultRow: View {
             }
         }
         .padding(.horizontal, 8)
+    }
+
+    private var symbolName: String {
+        switch item {
+        case .snippet(let snippet): return snippet.isPinned ? "pin.fill" : "doc.text"
+        case .website: return "globe"
+        }
+    }
+
+    /// The text's first line, or the website's address without the scheme.
+    private var subtitle: String {
+        switch item {
+        case .snippet(let snippet):
+            return snippet.preview
+        case .website(let website):
+            guard let url = website.url else { return website.address }
+            let address = url.absoluteString
+            if let range = address.range(of: "://") {
+                return String(address[range.upperBound...])
+            }
+            return address
+        }
+    }
+
+    /// Tags for a text; where a website opens ("Safari · Work") for a website.
+    private var detail: String? {
+        switch item {
+        case .snippet(let snippet):
+            return snippet.tags.isEmpty ? nil : snippet.tags.prefix(2).joined(separator: " · ")
+        case .website(let website):
+            return website.browser.bundleIdentifier == nil
+                ? "Website"
+                : BrowserLauncher.label(for: website.browser)
+        }
     }
 }

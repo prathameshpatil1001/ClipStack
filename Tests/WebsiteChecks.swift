@@ -104,6 +104,45 @@ enum WebsiteChecks {
                      BrowserProfileParser.safariProfileName(fromMenuTitle: "New Side Project Window") ?? "nil",
                      equals: "Side Project")
 
+        // ── ⌥Space search ───────────────────────────────────────────────────
+        let github = Website(name: "GitHub", address: "https://www.github.com/me")
+        var mail = Website(name: "Mail", address: "mail.example.com")
+        mail.browser = BrowserTarget(bundleIdentifier: "com.apple.Safari", profileID: "Work", profileName: "Work")
+        let docs = Website(name: "", address: "docs.example.com/guide")
+        let sites = [github, mail, docs]
+
+        func found(_ query: String) -> [String] {
+            FuzzySearchEngine.search(query, in: sites).map(\.website.displayName)
+        }
+        runner.check("websites: empty query shows none", found("").isEmpty)
+        runner.check("websites: by name", found("git").first ?? "nil", equals: "GitHub")
+        runner.check("websites: host ignores www.", found("github.com").first ?? "nil", equals: "GitHub")
+        runner.check("websites: unnamed site found by host", found("docs").first ?? "nil", equals: "docs.example.com")
+        runner.check("websites: by path", found("guide"), equals: ["docs.example.com"])
+        runner.check("websites: by profile it opens in", found("work"), equals: ["Mail"])
+        runner.check("websites: no match", found("zzz").isEmpty)
+
+        let pinned = Snippet(title: "Pinned note", body: "anything", isPinned: true)
+        let gitSnippet = Snippet(title: "git rebase steps", body: "git rebase -i")
+        let merged = FuzzySearchEngine.merge(
+            snippets: FuzzySearchEngine.search("git", in: [pinned, gitSnippet]),
+            websites: FuzzySearchEngine.search("git", in: sites)
+        )
+        runner.check("merge: snippets and websites in one list",
+                     Set(merged.map(\.item.title)), equals: ["git rebase steps", "GitHub"])
+        let pinnedMerge = FuzzySearchEngine.merge(
+            snippets: [SnippetSearchResult(snippet: pinned, score: 1)],
+            websites: [WebsiteSearchResult(website: github, score: 5000)]
+        )
+        runner.check("merge: a pinned snippet stays above a better website match",
+                     pinnedMerge.map(\.item.title), equals: ["Pinned note", "GitHub"])
+        let byScore = FuzzySearchEngine.merge(
+            snippets: [SnippetSearchResult(snippet: gitSnippet, score: 300)],
+            websites: [WebsiteSearchResult(website: github, score: 900)]
+        )
+        runner.check("merge: otherwise the better match wins, whatever its kind",
+                     byScore.map(\.item.title), equals: ["GitHub", "git rebase steps"])
+
         // ── Store ───────────────────────────────────────────────────────────
         let suite = "ClipStackWebsiteChecks-\(UUID().uuidString)"
         let defaults = UserDefaults(suiteName: suite)!

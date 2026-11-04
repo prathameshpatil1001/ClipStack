@@ -33,6 +33,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         environment = AppEnvironment()
         recallPanelController = SpotlightSearchPanelController(
             store: environment.snippets,
+            websites: environment.websites,
             clipboard: environment.clipboard,
             preferences: environment.preferences
         )

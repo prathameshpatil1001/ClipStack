@@ -35,7 +35,7 @@ struct MenuBarView: View {
             Divider().padding(.vertical, 4)
 
             MenuRow(
-                title: "Search Saved Texts",
+                title: "Search Texts & Websites",
                 systemImage: "magnifyingglass",
                 shortcut: preferences.recallHotKey.displayString,
                 action: actions.openRecallPanel

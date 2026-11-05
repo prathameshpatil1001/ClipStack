@@ -104,6 +104,18 @@ and this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
   below it, with Spotlight-like open, resize and selection animations.
 
 ### Fixed
+- **Exam-style captures came out scrambled.** With question numbers ("10")
+  and option letters ("A"–"D") printed in columns of their own, the letters
+  were read as separate lines or dropped, and some options ran together.
+  Recognition reads such a marker as a separate piece of its row; the layout
+  now joins it to the text beside it (exactly as written) and treats it as
+  that line's marker, so each question is followed by its options, one per
+  line, indented under it. Options written "A text" with no "." or ")" are
+  recognised when they come in sequence (A, B, C…), and the small gap between
+  a question and its options no longer becomes a blank line. On macOS 26 the
+  lines now always come from line recognition — document recognition's
+  "lines" can merge several options into one — with document recognition
+  adding tables, list markers and titles on top.
 - **The ⌥Space panel jumped up and down as results changed,** and flashed a
   rectangular outline. The window was resized for every result count, and its
   hosting view resized it too, from the bottom edge, a frame before the

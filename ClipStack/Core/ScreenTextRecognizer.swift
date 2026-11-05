@@ -7,38 +7,65 @@
 //  it (see BulletProbe). Runs off the main thread: accurate recognition takes
 //  a moment on a large capture.
 //
-//  On macOS 26 it uses document recognition (RecognizeDocumentsRequest),
-//  which understands lists, tables and titles itself:
+//  The lines always come from line recognition (VNRecognizeTextRequest): one
+//  observation per visual line, which the layout rules depend on. Document
+//  recognition's own "lines" are not reliably visual lines — it can fold an
+//  answer column's letters away and run several options into one line.
 //
-//   • tables come back cell by cell, and go into the layout as they are;
-//   • each list item's marker is applied to its first line — a bullet the
-//     pixels didn't show, or a "1." / "a." the line's text left out;
-//   • lines recognised as a title become headings.
+//  On macOS 26, document recognition (RecognizeDocumentsRequest) then adds
+//  what it understands on top, matched to those lines by position:
 //
-//  Reading order, columns, nesting and paragraphs are still worked out by
-//  TextLayout. Anywhere else, or if document recognition finds nothing, it
-//  falls back to line recognition.
+//   • tables, cell by cell, which go into the layout as they are;
+//   • list items' markers, applied to each item's first line — a bullet the
+//     pixels didn't show, or a "1." / "a." the line's text left out — unless
+//     the marker is already there as text or as its own piece of the row;
+//   • titles, which become headings.
+//
+//  Reading order, columns, nesting and paragraphs are worked out by TextLayout.
 //
 
 import CoreGraphics
 import Foundation
 import Vision
 
+/// What document recognition adds to the recognised lines.
+nonisolated struct DocumentStructure {
+    nonisolated struct ListItemHint {
+        /// The item's text, not including its marker, in image pixels.
+        var box: CGRect
+        var marker: String
+        /// A number or letter (put back as text) rather than a bullet.
+        var isOrdered: Bool
+    }
+
+    var tables: [DetectedTable] = []
+    var listItems: [ListItemHint] = []
+    var titleBoxes: [CGRect] = []
+}
+
 nonisolated enum ScreenTextRecognizer {
 
-    /// Everything in `image`: document recognition on macOS 26 when
-    /// `preferDocument` is on, line recognition otherwise.
+    /// Everything in `image`: its lines, plus on macOS 26 (when
+    /// `preferDocument` is on) the tables, list markers and titles document
+    /// recognition finds.
     static func recognizePage(_ image: CGImage, preferDocument: Bool) async throws -> RecognizedPage {
+        var lines = try recognize(image)
+        var tables: [DetectedTable] = []
+        var usedDocumentRecognition = false
+
         #if compiler(>=6.2)
-        if preferDocument {
+        if preferDocument, !lines.isEmpty {
             if #available(macOS 26.0, *) {
-                if let page = try? await recognizeDocument(image), !page.lines.isEmpty {
-                    return page
+                if let structure = try? await documentStructure(of: image) {
+                    apply(structure, to: &lines)
+                    tables = structure.tables
+                    usedDocumentRecognition = true
                 }
             }
         }
         #endif
-        return RecognizedPage(lines: try recognize(image), tables: [], usedDocumentRecognition: false)
+
+        return RecognizedPage(lines: lines, tables: tables, usedDocumentRecognition: usedDocumentRecognition)
     }
 
     /// Lines in `image`, positioned in its pixels, origin top-left.
@@ -73,74 +100,36 @@ nonisolated enum ScreenTextRecognizer {
         }
     }
 
-    // MARK: - macOS 26 document recognition
+    // MARK: - Applying document structure
 
-    #if compiler(>=6.2)
-    @available(macOS 26.0, *)
-    private static func recognizeDocument(_ image: CGImage) async throws -> RecognizedPage {
-        let request = RecognizeDocumentsRequest()
-        let observations = try await request.perform(on: image, orientation: nil)
-        guard let document = observations.first?.document else {
-            return RecognizedPage(lines: [], tables: [], usedDocumentRecognition: true)
-        }
-
-        let size = CGSize(width: image.width, height: image.height)
-        func rect(_ region: NormalizedRegion) -> CGRect {
-            region.boundingBox.toImageCoordinates(size, origin: .upperLeft)
-        }
-
-        var lines: [OCRLine] = document.text.lines.compactMap { observation in
-            let text = observation.transcript.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !text.isEmpty else { return nil }
-            let box = rect(observation.boundingRegion)
-            var line = OCRLine(
-                text: text,
-                minX: Double(box.minX),
-                minY: Double(box.minY),
-                width: Double(box.width),
-                height: Double(box.height)
-            )
-            line.isTitle = observation.isTitle
-            line.hasBulletMark = !startsWithBulletGlyph(text) && hasBulletMark(leftOf: line, in: image)
-            return line
-        }
-
-        applyListMarkers(from: document, to: &lines, rect: rect)
-
-        let tables: [DetectedTable] = document.tables.compactMap { table in
-            detectedTable(table, box: rect(table.boundingRegion))
-        }
-        return RecognizedPage(lines: lines, tables: tables, usedDocumentRecognition: true)
-    }
-
-    /// Gives each list item's first line its marker, nested lists included.
-    @available(macOS 26.0, *)
-    private static func applyListMarkers(
-        from container: DocumentObservation.Container,
-        to lines: inout [OCRLine],
-        rect: (NormalizedRegion) -> CGRect
-    ) {
-        for list in container.lists {
-            for item in list.items {
-                let itemBox = rect(item.content.text.boundingRegion)
-                if let index = firstLine(of: itemBox, in: lines) {
-                    let marker = item.markerString.trimmingCharacters(in: .whitespaces)
-                    var line = lines[index]
-                    let alreadyMarked = line.hasBulletMark || startsWithBulletGlyph(line.text)
-                        || (!marker.isEmpty && line.text.hasPrefix(marker))
-                    if !alreadyMarked {
-                        switch item.markerType {
-                        case .decimal?, .compositeDecimal?, .decorativeDecimal?, .lowercaseLatin?, .uppercaseLatin?:
-                            // The number or letter is in the document; put it back.
-                            if !marker.isEmpty { line.text = marker + " " + line.text }
-                        default:
-                            line.hasBulletMark = true
-                        }
-                        lines[index] = line
-                    }
-                }
-                applyListMarkers(from: item.content, to: &lines, rect: rect)
+    /// Titles, then list markers, onto the recognised lines.
+    static func apply(_ structure: DocumentStructure, to lines: inout [OCRLine]) {
+        for index in lines.indices {
+            let line = lines[index]
+            if structure.titleBoxes.contains(where: { $0.contains(CGPoint(x: line.midX, y: line.midY)) }) {
+                lines[index].isTitle = true
             }
+        }
+
+        for item in structure.listItems {
+            guard let index = firstLine(of: item.box, in: lines) else { continue }
+            var line = lines[index]
+            let marker = item.marker.trimmingCharacters(in: .whitespaces)
+
+            let alreadyMarked = line.hasBulletMark
+                || startsWithBulletGlyph(line.text)
+                || (!marker.isEmpty && line.text.hasPrefix(marker))
+                || hasMarkerPiece(marker, leftOf: line, in: lines)
+            guard !alreadyMarked else { continue }
+
+            if item.isOrdered {
+                // The number or letter is in the document; put it back.
+                guard !marker.isEmpty else { continue }
+                line.text = marker + " " + line.text
+            } else {
+                line.hasBulletMark = true
+            }
+            lines[index] = line
         }
     }
 
@@ -150,9 +139,72 @@ nonisolated enum ScreenTextRecognizer {
         let candidates = lines.indices.filter { index in
             let line = lines[index]
             return line.midY >= Double(box.minY) - slack && line.midY <= Double(box.maxY) + slack
-                && line.maxX > Double(box.minX) - line.height * 2 && line.minX < Double(box.maxX)
+                && line.maxX > Double(box.minX) && line.minX < Double(box.maxX)
         }
         return candidates.min { lines[$0].minY < lines[$1].minY }
+    }
+
+    /// Whether the marker was recognised as its own piece of the same row,
+    /// left of the line (an answer-letter column) — the layout joins those.
+    private static func hasMarkerPiece(_ marker: String, leftOf line: OCRLine, in lines: [OCRLine]) -> Bool {
+        let bare = marker.trimmingCharacters(in: CharacterSet(charactersIn: ".):( "))
+        guard !bare.isEmpty else { return false }
+        return lines.contains { other in
+            other.maxX <= line.minX + 1
+                && abs(other.midY - line.midY) <= line.height * 0.5
+                && other.text.trimmingCharacters(in: CharacterSet(charactersIn: ".):( ")) == bare
+        }
+    }
+
+    // MARK: - macOS 26 document recognition
+
+    #if compiler(>=6.2)
+    @available(macOS 26.0, *)
+    private static func documentStructure(of image: CGImage) async throws -> DocumentStructure {
+        let request = RecognizeDocumentsRequest()
+        let observations = try await request.perform(on: image, orientation: nil)
+        var structure = DocumentStructure()
+        guard let document = observations.first?.document else { return structure }
+
+        let size = CGSize(width: image.width, height: image.height)
+        func rect(_ region: NormalizedRegion) -> CGRect {
+            region.boundingBox.toImageCoordinates(size, origin: .upperLeft)
+        }
+
+        if let title = document.title {
+            structure.titleBoxes.append(rect(title.boundingRegion))
+        }
+        collectListItems(from: document, into: &structure, rect: rect)
+        structure.tables = document.tables.compactMap { table in
+            detectedTable(table, box: rect(table.boundingRegion))
+        }
+        return structure
+    }
+
+    /// Every list item, nested lists included.
+    @available(macOS 26.0, *)
+    private static func collectListItems(
+        from container: DocumentObservation.Container,
+        into structure: inout DocumentStructure,
+        rect: (NormalizedRegion) -> CGRect
+    ) {
+        for list in container.lists {
+            for item in list.items {
+                let isOrdered: Bool
+                switch item.markerType {
+                case .decimal?, .compositeDecimal?, .decorativeDecimal?, .lowercaseLatin?, .uppercaseLatin?:
+                    isOrdered = true
+                default:
+                    isOrdered = false
+                }
+                structure.listItems.append(DocumentStructure.ListItemHint(
+                    box: rect(item.content.text.boundingRegion),
+                    marker: item.markerString,
+                    isOrdered: isOrdered
+                ))
+                collectListItems(from: item.content, into: &structure, rect: rect)
+            }
+        }
     }
 
     /// A recognised table as rows of cell text. A cell spanning rows is put in

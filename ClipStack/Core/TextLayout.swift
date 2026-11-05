@@ -43,6 +43,9 @@ nonisolated struct OCRLine: Hashable {
     var hasBulletMark: Bool = false
     /// Recognition marked it as a title (macOS 26 document recognition).
     var isTitle: Bool = false
+    /// A question number or option letter that sat apart from the text, in
+    /// its own column ("10", "A"), now joined to the front of this line.
+    var columnMarker: String? = nil
 
     var maxX: Double { minX + width }
     var maxY: Double { minY + height }
@@ -138,6 +141,19 @@ struct ListMarker: Equatable {
 
     private static let misreadBulletPattern = #"^[eoc©®°]\s+(\S.*)$"#
 
+    private static let bareMarkerPattern = #"^(?:Q\.?\s?\d{1,3}|\d{1,3}|[A-Za-z]|[ivxIVX]{1,5}|\(\w{1,3}\))[.):]?$"#
+
+    /// What a piece of text standing alone at the start of a row is, when it is
+    /// nothing but a marker: "10", "Q3", "A", "(b)", "iv.".
+    static func bareKind(_ token: String) -> Kind? {
+        let trimmed = token.trimmingCharacters(in: .whitespaces)
+        guard trimmed.range(of: bareMarkerPattern, options: .regularExpression) != nil else { return nil }
+        let first = trimmed.first
+        let isNumber = first?.isNumber == true || first == "Q"
+            || (first == "(" && trimmed.dropFirst().first?.isNumber == true)
+        return isNumber ? .number : .letter
+    }
+
     static func parse(_ text: String, hasBulletMark: Bool, fixMisread: Bool) -> ListMarker? {
         let trimmed = text.trimmingCharacters(in: .whitespaces)
         guard let first = trimmed.first else { return nil }
@@ -225,8 +241,35 @@ enum TextLayoutEngine {
                     merged.append(line)
                 }
             }
-            return merged
+            return joiningColumnMarkers(merged, lineHeight: h)
         }
+    }
+
+    /// A question number or option letter in a column of its own ("10" …
+    /// "Research completed", "A" … "reduced the productivity") is read as a
+    /// separate piece of the row. It belongs to the text beside it: join them,
+    /// keeping the marker exactly as written, and remember it was a marker.
+    /// Only the first piece of a row: a letter at the end of a row is an
+    /// answer column, read across as a table.
+    static func joiningColumnMarkers(_ row: [OCRLine], lineHeight h: Double) -> [OCRLine] {
+        guard row.count >= 2,
+              ListMarker.bareKind(row[0].text) != nil,
+              row[1].minX - row[0].maxX < 12 * h
+        else { return row }
+
+        let marker = row[0].text.trimmingCharacters(in: .whitespaces)
+        var joined = row[1]
+        let right = joined.maxX
+        let top = min(row[0].minY, joined.minY)
+        let bottom = max(row[0].maxY, joined.maxY)
+        joined.text = marker + " " + joined.text
+        joined.minX = row[0].minX
+        joined.width = right - joined.minX
+        joined.minY = top
+        joined.height = bottom - top
+        joined.columnMarker = marker
+        joined.hasBulletMark = false
+        return [joined] + row.dropFirst(2)
     }
 
     /// The recognised text with no formatting: rows top to bottom.
@@ -441,8 +484,32 @@ enum TextLayoutEngine {
         var previous: OCRLine?
         var questionLevel: Int?
 
-        for line in lines {
-            let marker = ListMarker.parse(line.text, hasBulletMark: line.hasBulletMark, fixMisread: options.fixMisreadBullets)
+        // Options written "A text", "B text" with no "." or ")": a capital or
+        // small letter, a space, then text, on consecutive lines in alphabetical
+        // sequence. One such line alone ("A man walked in.") is just a sentence.
+        let leadingLetters: [UInt8?] = lines.map { line in
+            let characters = Array(line.text)
+            guard characters.count >= 3, characters[0].isLetter, let code = characters[0].asciiValue,
+                  characters[1] == " "
+            else { return nil }
+            return code
+        }
+        var sequencedOptions = Set<Int>()
+        for index in lines.indices.dropLast() {
+            if let current = leadingLetters[index], let next = leadingLetters[index + 1], next == current + 1 {
+                sequencedOptions.insert(index)
+                sequencedOptions.insert(index + 1)
+            }
+        }
+
+        for (index, line) in lines.enumerated() {
+            var marker = ListMarker.parse(line.text, hasBulletMark: line.hasBulletMark, fixMisread: options.fixMisreadBullets)
+            if marker == nil, let token = line.columnMarker, let kind = ListMarker.bareKind(token) {
+                marker = ListMarker(kind: kind, content: line.text)
+            }
+            if marker == nil, sequencedOptions.contains(index) {
+                marker = ListMarker(kind: .letter, content: line.text)
+            }
             let indentLevel = min(4, max(0, Int(((line.minX - left) / h + 0.3) / 1.6)))
             let isHeading = marker == nil
                 && ((line.height >= 1.35 * h && line.text.count <= 80) || (line.isTitle && line.text.count <= 120))
@@ -474,7 +541,10 @@ enum TextLayoutEngine {
             }
 
             var block = LayoutBlock(kind: .paragraph, text: line.text)
-            block.startsAfterGap = previous != nil && gap > 0.8 * h
+            // Options sit a little apart from their question in many layouts;
+            // that is not a paragraph break.
+            let breakGap = marker?.kind == .letter && blocks.last?.isListItem == true ? 2.5 * h : 0.8 * h
+            block.startsAfterGap = previous != nil && gap > breakGap
 
             if let marker {
                 switch marker.kind {
@@ -488,12 +558,9 @@ enum TextLayoutEngine {
                     questionLevel = indentLevel
                 case .letter:
                     block.kind = .numbered
-                    // Options sit one level under the question they follow.
-                    if let questionLevel, indentLevel <= questionLevel {
-                        block.level = questionLevel + 1
-                    } else {
-                        block.level = indentLevel
-                    }
+                    // Options sit one level under the question they follow,
+                    // however far across the page they are printed.
+                    block.level = questionLevel.map { $0 + 1 } ?? indentLevel
                 }
             } else if isHeading {
                 block.kind = .heading

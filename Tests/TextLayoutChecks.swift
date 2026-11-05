@@ -170,6 +170,74 @@ enum TextLayoutChecks {
         runner.check("the model sees numbered, positioned lines",
                      prompt.contains("1. x=0 y=0") && prompt.contains("2. x=93") && prompt.contains("Fastest animal?"))
 
+        // ── Question numbers and option letters in columns of their own ────
+        // (the IELTS-style layout: "10" apart from its question, A–D in a
+        // column apart from the options)
+        func ielts(_ text: String, x: Double, y: Double, w: Double) -> OCRLine {
+            line(text, x: x, y: y, w: w, h: 14)
+        }
+        let exam = [
+            ielts("Questions 10 – 12", x: 20, y: 0, w: 130),
+            ielts("Choose the appropriate letters A, B, C or D.", x: 20, y: 30, w: 300),
+            ielts("Write your answers in boxes 10-12 on your answer sheet.", x: 20, y: 60, w: 380),
+            ielts("10", x: 20, y: 95, w: 16),
+            ielts("Research completed in 1982 found that in the United States soil erosion", x: 65, y: 95, w: 470),
+            ielts("A", x: 115, y: 125, w: 10),
+            ielts("reduced the productivity of farmland by 20 per cent.", x: 165, y: 125, w: 300),
+            ielts("B", x: 115, y: 141, w: 10),
+            ielts("was almost as severe as in India and China.", x: 165, y: 141, w: 260),
+            ielts("C", x: 115, y: 157, w: 10),
+            ielts("was causing significant damage to 20 per cent of farmland.", x: 165, y: 157, w: 330),
+            ielts("D", x: 115, y: 173, w: 10),
+            ielts("could be reduced by converting cultivated land to meadow or forest.", x: 165, y: 173, w: 400),
+            ielts("11", x: 20, y: 208, w: 16),
+            ielts("By the mid-1980s, farmers in Denmark", x: 65, y: 208, w: 250),
+            ielts("A", x: 115, y: 238, w: 10),
+            ielts("used 50 per cent less fertiliser than Dutch farmers.", x: 165, y: 238, w: 290),
+            ielts("B", x: 115, y: 254, w: 10),
+            ielts("used twice as much fertiliser as they had in 1960.", x: 165, y: 254, w: 280),
+        ]
+        let examLayout = TextLayoutEngine.layout(exam)
+        runner.check("questions with their own numbers, options with their letters",
+                     LayoutRenderer.text(examLayout.blocks, style: .plain),
+                     equals: """
+                     Questions 10 – 12
+
+                     Choose the appropriate letters A, B, C or D.
+
+                     Write your answers in boxes 10-12 on your answer sheet.
+
+                     10 Research completed in 1982 found that in the United States soil erosion
+                       A reduced the productivity of farmland by 20 per cent.
+                       B was almost as severe as in India and China.
+                       C was causing significant damage to 20 per cent of farmland.
+                       D could be reduced by converting cultivated land to meadow or forest.
+
+                     11 By the mid-1980s, farmers in Denmark
+                       A used 50 per cent less fertiliser than Dutch farmers.
+                       B used twice as much fertiliser as they had in 1960.
+                     """)
+        runner.check("…an ordinary list, not a table", !examLayout.isComplex)
+
+        let lettered = [
+            line("1. Which river is longest?", x: 0, y: 0, w: 300),
+            line("A Nile", x: 20, y: 20, w: 80),
+            line("B Amazon", x: 20, y: 40, w: 100),
+            line("C Yangtze", x: 20, y: 60, w: 100),
+        ]
+        runner.check("options read as “A Nile” in one piece, in sequence, are options",
+                     LayoutRenderer.text(TextLayoutEngine.layout(lettered).blocks, style: .plain),
+                     equals: "1. Which river is longest?\n  A Nile\n  B Amazon\n  C Yangtze")
+        let sentence = [
+            line("A man walked in and sat down by the", x: 0, y: 0, w: 300),
+            line("window.", x: 0, y: 20, w: 60),
+        ]
+        runner.check("one sentence starting “A ” is still a sentence",
+                     LayoutRenderer.text(TextLayoutEngine.layout(sentence).blocks, style: .plain),
+                     equals: "A man walked in and sat down by the window.")
+        runner.check("bare markers", ListMarker.bareKind("10") == .number && ListMarker.bareKind("B") == .letter
+                     && ListMarker.bareKind("(c)") == .letter && ListMarker.bareKind("Research") == nil)
+
         // ── Tables and titles from macOS 26 document recognition ───────────
         let page = [
             line("Results", x: 0, y: 0, w: 120),

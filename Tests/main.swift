@@ -14,6 +14,7 @@ let totalFailures = FuzzySearchChecks.run()
     + (await ProfileChecks.run())
     + (await TextLayoutChecks.run())
     + (await StackFormatChecks.run())
+    + (await MarkerRecoveryChecks.run())
 
 print("")
 if totalFailures == 0 {

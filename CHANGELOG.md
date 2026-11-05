@@ -104,6 +104,16 @@ and this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
   below it, with Spotlight-like open, resize and selection animations.
 
 ### Fixed
+- **Option letters recognition didn't read were lost.** Text recognition
+  often skips a capital letter standing alone in a column, so of A–D only
+  "D" might come back, and the unlettered options ran together into one
+  sentence. Where a column of option letters exists, every option line
+  without its letter has that cell checked for ink and read again, enlarged;
+  what still can't be read is filled in from the sequence of the letters that
+  were (with "D" read, the three inked cells above it are A, B, C). A line
+  with no ink in the letter column is a wrapped line and gets no letter. And a
+  line ending "." followed by one starting in lowercase is no longer joined
+  into one paragraph.
 - **Exam-style captures came out scrambled.** With question numbers ("10")
   and option letters ("A"–"D") printed in columns of their own, the letters
   were read as separate lines or dropped, and some options ran together.

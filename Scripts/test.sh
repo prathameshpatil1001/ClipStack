@@ -29,6 +29,7 @@ xcrun swiftc -O \
     ClipStack/Core/ProfileStore.swift \
     ClipStack/Core/TextLayout.swift \
     ClipStack/Core/BulletProbe.swift \
+    ClipStack/Core/MarkerRecovery.swift \
     ClipStack/Core/FuzzySearchEngine.swift \
     ClipStack/Core/SnippetSyncMerge.swift \
     ClipStack/Core/ClipboardManager.swift \
@@ -46,6 +47,7 @@ xcrun swiftc -O \
     Tests/ProfileChecks.swift \
     Tests/TextLayoutChecks.swift \
     Tests/StackFormatChecks.swift \
+    Tests/MarkerRecoveryChecks.swift \
     Tests/main.swift
 
 "$BUILD_DIR/clipstack-checks"

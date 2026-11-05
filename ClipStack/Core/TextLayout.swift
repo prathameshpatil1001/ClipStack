@@ -516,7 +516,14 @@ enum TextLayoutEngine {
             let gap = previous.map { line.minY - $0.maxY } ?? 0
 
             // Does this line carry on the block before it?
+            // A sentence that ends at the end of a line, followed by a line
+            // starting in lowercase, is two items (options whose letters went
+            // unread), not one sentence wrapping: prose doesn't start a
+            // sentence in lowercase.
+            let endsSentence = previous.map { [".", "?", "!"].contains($0.text.last ?? " ") } ?? false
+            let startsLowercase = line.text.first?.isLowercase == true
             if marker == nil, !isHeading, options.joinWrappedLines,
+               !(endsSentence && startsLowercase),
                let prev = previous, var last = blocks.last, let lastLeft = blockLeft.last,
                gap >= -0.3 * h, gap <= 0.8 * h,
                prev.maxX >= left + 0.6 * width {

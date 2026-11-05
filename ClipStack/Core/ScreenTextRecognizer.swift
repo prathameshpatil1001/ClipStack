@@ -49,7 +49,7 @@ nonisolated enum ScreenTextRecognizer {
     /// `preferDocument` is on) the tables, list markers and titles document
     /// recognition finds.
     static func recognizePage(_ image: CGImage, preferDocument: Bool) async throws -> RecognizedPage {
-        var lines = try recognize(image)
+        var lines = recoverMarkers(in: try recognize(image), image: image)
         var tables: [DetectedTable] = []
         var usedDocumentRecognition = false
 
@@ -98,6 +98,111 @@ nonisolated enum ScreenTextRecognizer {
             line.hasBulletMark = !startsWithBulletGlyph(text) && hasBulletMark(leftOf: line, in: image)
             return line
         }
+    }
+
+    // MARK: - Recovering markers recognition missed
+
+    /// Option letters (and numbers) recognition didn't read, found where a
+    /// marker column says they should be — see MarkerRecovery — and added as
+    /// pieces of their rows, which the layout joins to the text.
+    static func recoverMarkers(in lines: [OCRLine], image: CGImage) -> [OCRLine] {
+        let columns = MarkerRecovery.columns(in: lines)
+        guard !columns.isEmpty else { return lines }
+        let slots = MarkerRecovery.slots(in: lines, columns: columns)
+        guard !slots.isEmpty else { return lines }
+        let h = MarkerRecovery.lineHeight(lines)
+
+        // Look at each slot: a mark there is a marker; none, a wrapped line.
+        var inked = Set<Int>()
+        var read: [Int: String] = [:]
+        for (index, slot) in slots.enumerated() {
+            let rect = CGRect(x: slot.minX, y: slot.minY, width: slot.width, height: slot.height).integral
+            guard let pixels = grayPixels(of: image, in: rect),
+                  MarkerRecovery.hasInk(gray: pixels.values, width: pixels.width, height: pixels.height)
+            else { continue }
+            inked.insert(index)
+            if let text = readMarker(in: image, rect: rect, pixels: pixels), MarkerRecovery.isBareMarker(text) {
+                read[index] = text
+            }
+        }
+        guard !inked.isEmpty else { return lines }
+
+        var recovered: [Int: String] = [:]
+        for (columnIndex, column) in columns.enumerated() {
+            var rows: [MarkerRecovery.ColumnRow] = lines
+                .filter { MarkerRecovery.isBareMarker($0.text) && $0.minX >= column.minX - h && $0.maxX <= column.maxX + h }
+                .map { MarkerRecovery.ColumnRow(y: $0.midY, known: $0.text, slot: nil) }
+            for (index, slot) in slots.enumerated() where slot.column == columnIndex && inked.contains(index) {
+                rows.append(MarkerRecovery.ColumnRow(y: slot.minY + slot.height / 2, known: read[index], slot: index))
+            }
+            for (slot, text) in MarkerRecovery.resolve(rows, column: column, lineHeight: h) {
+                recovered[slot] = text
+            }
+        }
+
+        var result = lines
+        for (index, text) in recovered {
+            let slot = slots[index]
+            let column = columns[slot.column]
+            let line = lines[slot.line]
+            result.append(OCRLine(
+                text: text,
+                minX: column.minX,
+                minY: line.minY,
+                width: max(column.maxX - column.minX, 1),
+                height: line.height
+            ))
+        }
+        return result
+    }
+
+    /// Reads one marker cell again, enlarged and padded: recognition does much
+    /// better with a lone character when it fills a small, clean image.
+    private static func readMarker(
+        in image: CGImage,
+        rect: CGRect,
+        pixels: (values: [UInt8], width: Int, height: Int)
+    ) -> String? {
+        guard let cropped = image.cropping(to: rect), cropped.height > 0 else { return nil }
+        let background = CGFloat(pixels.values.sorted()[pixels.values.count / 2]) / 255
+        let scale = max(1, 64 / CGFloat(cropped.height))
+        let padding: CGFloat = 24
+        let width = Int(CGFloat(cropped.width) * scale + padding * 2)
+        let height = Int(CGFloat(cropped.height) * scale + padding * 2)
+
+        guard let context = CGContext(
+            data: nil,
+            width: width,
+            height: height,
+            bitsPerComponent: 8,
+            bytesPerRow: 0,
+            space: CGColorSpaceCreateDeviceGray(),
+            bitmapInfo: CGImageAlphaInfo.none.rawValue
+        ) else { return nil }
+        context.setFillColor(gray: background, alpha: 1)
+        context.fill(CGRect(x: 0, y: 0, width: width, height: height))
+        context.interpolationQuality = .high
+        context.draw(cropped, in: CGRect(
+            x: padding,
+            y: padding,
+            width: CGFloat(cropped.width) * scale,
+            height: CGFloat(cropped.height) * scale
+        ))
+        guard let enlarged = context.makeImage() else { return nil }
+
+        for level in [VNRequestTextRecognitionLevel.accurate, .fast] {
+            let request = VNRecognizeTextRequest()
+            request.recognitionLevel = level
+            request.usesLanguageCorrection = false
+            let handler = VNImageRequestHandler(cgImage: enlarged, options: [:])
+            guard (try? handler.perform([request])) != nil else { continue }
+            let text = (request.results ?? [])
+                .compactMap { $0.topCandidates(1).first?.string }
+                .joined(separator: " ")
+                .trimmingCharacters(in: .whitespaces)
+            if MarkerRecovery.isBareMarker(text) { return text }
+        }
+        return nil
     }
 
     // MARK: - Applying document structure

@@ -307,6 +307,11 @@ final class StackModeController: ObservableObject {
         append(text)
     }
 
+    /// Adds text that didn't come from a copy — a screen capture.
+    func addCaptured(_ text: String) {
+        append(text)
+    }
+
     private func append(_ text: String) {
         entries.append(StackEntry(text: text))
         onStackChanged?()

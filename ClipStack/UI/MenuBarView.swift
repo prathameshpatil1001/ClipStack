@@ -41,6 +41,12 @@ struct MenuBarView: View {
                 action: actions.openRecallPanel
             )
             MenuRow(
+                title: "Capture Text from Screen",
+                systemImage: "text.viewfinder",
+                shortcut: preferences.captureTextHotKey?.displayString,
+                action: actions.captureText
+            )
+            MenuRow(
                 title: "Saved Texts\u{2026}",
                 systemImage: "text.book.closed",
                 action: actions.openSavedTexts

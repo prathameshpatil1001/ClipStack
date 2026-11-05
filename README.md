@@ -1,6 +1,6 @@
 # ClipStack
 
-A macOS menu bar utility with four features:
+A macOS menu bar utility with five features:
 
 1. **Stack Mode** — while it is on, everything you copy appends to an ordered stack instead of
    overwriting the clipboard: <kbd>⌘C</kbd>, and also copies that never press it (Shottr and other
@@ -15,6 +15,10 @@ A macOS menu bar utility with four features:
    press <kbd>⌥Space</kbd> then <kbd>⌘↩</kbd>, and say "fill in my details". ClipStack fills them
    from your **Profile** (name, PRN, servers, project paths…) using Apple's on-device model, and
    changes nothing you didn't ask it to. Everything stays on your Mac.
+5. **Screen text capture** — <kbd>⌥⌘T</kbd>, drag over anything on screen, and its text goes into
+   the stack with its **layout rebuilt**: bullets (even the ones text recognition misses), nested
+   lists, questions with their options, paragraphs, and columns read in the right order —
+   including MCQ answers sitting in a second column. Replaces the Shottr step.
 
 No Dock icon, no app switcher entry — it lives in the menu bar (`LSUIElement`). The one exception:
 while a ClipStack window (Saved Texts, Websites, Profile, Settings) is open, it shows a Dock icon and a
@@ -108,6 +112,7 @@ Settings ▸ Permissions shows both switches and which capture route is live.
 | Websites in a **Safari** profile | **Yes** — Accessibility, plus Automation for Safari (macOS asks once) |
 | Profile, and Quick fill (<kbd>⌥↩</kbd>) in edit mode | No |
 | AI edits (<kbd>⌘↩</kbd>) and "Tell ClipStack about you" | No permission — but macOS 26 with Apple Intelligence on |
+| Screen text capture (<kbd>⌥⌘T</kbd>) | **Yes** — Screen Recording (macOS 14+) |
 
 If permission is missing, Stack Mode refuses to switch on and says why;
 everything else carries on. Grant it later and ClipStack arms itself within
@@ -175,13 +180,15 @@ Every shortcut is remappable in **Settings ▸ Shortcuts** and stored in `UserDe
 | <kbd>⌥⌘X</kbd> | **Reset Stack** — empty the stack |
 | <kbd>⌥⌘S</kbd> | **Toggle Stack Mode** — turn stacking on or off from anywhere |
 | <kbd>⌥Space</kbd> | **Recall** — open the saved-text search panel |
+| <kbd>⌥⌘T</kbd> | **Capture Text from Screen** — drag over text to read it into the stack |
 
 The panel opens as a bare search field — it never puts your saved texts on screen until you type —
 and grows downwards into results from a fixed top edge, the way Spotlight does.
 
 In the recall panel: <kbd>↑</kbd>/<kbd>↓</kbd> (or <kbd>⌃P</kbd>/<kbd>⌃N</kbd>) move the highlight
 and wrap around, <kbd>↩</kbd> pastes the snippet into the app you came from (or just copies it, if
-you turn auto-paste off), <kbd>esc</kbd> closes with no action.
+you turn auto-paste off), <kbd>⌘1</kbd>–<kbd>⌘9</kbd> pick a row directly, <kbd>⌘↩</kbd> switches to
+AI edit mode (below), <kbd>esc</kbd> closes with no action.
 
 `⌘C` is deliberately not remappable: ClipStack observes the system-wide copy keystroke without
 changing what it does, rather than binding a hotkey of its own.
@@ -208,6 +215,43 @@ Clearing the Toggle Stack Mode shortcut sticks — it will not reappear on the n
 - iCloud sync toggle and live status
 
 **Shortcuts** — rebind anything; conflicts with macOS or another app are reported inline.
+
+## Screen text capture
+
+Press <kbd>⌥⌘T</kbd> (or menu bar ▸ **Capture Text from Screen**). The screens freeze, exactly as
+they were — menus and hover states included — and you drag a box over the text. It is read with
+Apple's on-device text recognition and lands in the **stack** while Stack Mode is on, or on the
+**clipboard** otherwise, where it carries real formatting too: Notes, Pages, Mail and Google Docs
+paste actual bullets and tables, plain-text apps get the text.
+
+Plain OCR gives you rows of text. ClipStack rebuilds the layout from where each line sits:
+
+- **Bullets** — including the ones recognition drops or reads as "e": the pixels just left of each
+  line are checked for a bullet-shaped mark. Indentation gives the nesting.
+- **Numbered items and MCQs** — `1.`, `Q3`, `(a)`, `ii.`; options sit one level under their question.
+- **Paragraphs** — lines that wrap are joined (hyphenated words too); a short line like a sign-off
+  keeps its line break.
+- **Columns** — a vertical strip no text crosses is a gutter. If the text on either side lines up
+  row by row (a question and its answer, a table), it is read **across**; if not (two columns of
+  running text), each column is read **down**, left first. Plain OCR interleaves those.
+- **Headings** and **tables** (tab-separated in plain text, a table in Markdown and in Notes/Docs).
+
+**Smart** formatting (the default) also asks Apple's on-device model to settle the reading order
+of captures with columns or side-by-side text. It is shown only numbered lines and their positions,
+and may only answer with an order and a kind for each group of lines — never text — and its answer
+is used only if it accounts for every line exactly once. Otherwise the layout rules stand.
+
+Simple captures go straight in. A capture with columns, side-by-side text or an AI-chosen order is
+shown first, with **Formatted / As read** and **Plain / Markdown** to switch between; that can be
+changed in **Settings ▸ Capture**. Hold <kbd>⌥</kbd> as you let go of the drag to get the text
+exactly as read.
+
+The only changes made to characters are three fixes, each of which can be turned off in
+Settings ▸ Capture: a misread bullet back to •, a word hyphenated across a line break, and wrapped
+lines joined. Nothing else is added, dropped or reworded.
+
+Needs macOS 14 and the **Screen Recording** permission (macOS asks the first time; reopen
+ClipStack after granting it).
 
 ## AI edit mode and Profile
 
@@ -330,6 +374,10 @@ ClipStack/
 │   ├── CloudSyncCoordinator.swift       iCloud key-value sync
 │   ├── SnippetSyncMerge.swift           pure reconciliation rules
 │   ├── WebsiteStore.swift               saved websites, in UserDefaults
+│   ├── TextLayout.swift                 rebuilding layout from recognised lines (pure, tested)
+│   ├── BulletProbe.swift                spotting bullet marks in pixels (pure, tested)
+│   ├── ScreenTextRecognizer.swift       Vision text recognition
+│   ├── ScreenSnapshotter.swift          freezing the screens (ScreenCaptureKit)
 │   └── BrowserLauncher.swift            browser discovery, and opening in a profile
 └── UI/
     ├── StatusItemController.swift  menu bar icon, runtime-drawn numeric badge
@@ -340,6 +388,8 @@ ClipStack/
     ├── SavedTextsWindow.swift      management window + shared window controller
     ├── SnippetEditorView.swift     add/edit form
     ├── WebsitesWindow.swift        website list and editor (browser + profile pickers)
+    ├── RegionSelectionOverlay.swift the drag-a-box overlay for screen capture
+    ├── TextCaptureController.swift capture, start to finish, and its preview
     ├── SettingsView.swift          settings panes
     ├── ShortcutRecorderView.swift  click-to-record shortcut control
     └── HUDController.swift         the transient confirmation under the icon

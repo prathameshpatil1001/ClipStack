@@ -41,6 +41,31 @@ final class ClipboardManager {
         return written
     }
 
+    /// Writes text plus a formatted copy (HTML, and RTF made from it), so apps
+    /// that understand formatting paste real bullets and tables while plain
+    /// text editors get the text.
+    @discardableResult
+    func write(_ string: String, html: String) -> Bool {
+        pasteboard.clearContents()
+        var written = pasteboard.setString(string, forType: .string)
+        written = pasteboard.setString(html, forType: .html) && written
+        if let attributed = try? NSAttributedString(
+            data: Data(html.utf8),
+            options: [
+                .documentType: NSAttributedString.DocumentType.html,
+                .characterEncoding: String.Encoding.utf8.rawValue,
+            ],
+            documentAttributes: nil
+        ), let rtf = try? attributed.data(
+            from: NSRange(location: 0, length: attributed.length),
+            documentAttributes: [.documentType: NSAttributedString.DocumentType.rtf]
+        ) {
+            pasteboard.setData(rtf, forType: .rtf)
+        }
+        lastOwnWriteChangeCount = pasteboard.changeCount
+        return written
+    }
+
     // MARK: - Watching for copies made without ⌘C
 
     /// What the pasteboard holds compared with what the caller has consumed.

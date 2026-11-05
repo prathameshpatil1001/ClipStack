@@ -12,6 +12,7 @@ let totalFailures = FuzzySearchChecks.run()
     + (await WebsiteChecks.run())
     + (await TemplateFillChecks.run())
     + (await ProfileChecks.run())
+    + (await TextLayoutChecks.run())
 
 print("")
 if totalFailures == 0 {

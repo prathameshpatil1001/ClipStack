@@ -123,6 +123,33 @@ enum OnDeviceAI {
         throw OnDeviceAIError.unavailable(unavailableReason ?? "Apple Intelligence isn't available.")
     }
 
+    // MARK: - Arranging captured text
+
+    /// Asks the model how recognised lines go together: kinds and line
+    /// numbers only, never text. The caller checks every line is used once.
+    static func arrangeLayout(prompt: String) async throws -> [ProposedLayoutBlock] {
+        if let reason = unavailableReason { throw OnDeviceAIError.unavailable(reason) }
+        guard prompt.count <= maximumCharacters else { throw OnDeviceAIError.tooLong }
+
+        #if canImport(FoundationModels)
+        if #available(macOS 26.0, *) {
+            do {
+                let session = LanguageModelSession(instructions: LayoutArrangement.instructions)
+                let response = try await session.respond(
+                    to: prompt,
+                    generating: GeneratedLayout.self
+                )
+                return response.content.blocks.map {
+                    ProposedLayoutBlock(kind: $0.kind, level: $0.level, lines: $0.lines)
+                }
+            } catch {
+                throw describe(error)
+            }
+        }
+        #endif
+        throw OnDeviceAIError.unavailable(unavailableReason ?? "Apple Intelligence isn't available.")
+    }
+
     // MARK: - Errors
 
     private static func describe(_ error: Error) -> Error {
@@ -185,6 +212,26 @@ nonisolated struct GeneratedFact {
 
     @Guide(description: "True for passwords, tokens, keys, ID numbers and other private details.")
     var isSecret: Bool
+}
+
+@available(macOS 26.0, *)
+@Generable
+nonisolated struct GeneratedLayout {
+    @Guide(description: "The blocks in reading order. Together they use every line number exactly once.")
+    var blocks: [GeneratedLayoutBlock]
+}
+
+@available(macOS 26.0, *)
+@Generable
+nonisolated struct GeneratedLayoutBlock {
+    @Guide(description: "One of: heading, paragraph, bullet, numbered, row.")
+    var kind: String
+
+    @Guide(description: "Nesting level: 0 at the margin, 1 for an item under another.")
+    var level: Int
+
+    @Guide(description: "The numbers of the lines in this block, in reading order.")
+    var lines: [Int]
 }
 
 #endif

@@ -9,6 +9,44 @@
 import AppKit
 import Combine
 
+/// How much ClipStack does to the text it reads from a screen capture.
+enum CaptureFormatting: String, CaseIterable, Identifiable {
+    /// Exactly as recognised, row by row.
+    case off
+    /// Columns, bullets, numbering and paragraphs, by layout rules alone.
+    case layout
+    /// The layout rules, plus Apple's on-device model for the order of
+    /// captures with columns or side-by-side text.
+    case smart
+
+    var id: String { rawValue }
+
+    var label: String {
+        switch self {
+        case .off: return "Off — text exactly as read"
+        case .layout: return "Layout rules"
+        case .smart: return "Smart — rules + Apple Intelligence"
+        }
+    }
+}
+
+/// When a capture is shown before it goes to the stack or clipboard.
+enum CapturePreviewPolicy: String, CaseIterable, Identifiable {
+    case complexOnly
+    case always
+    case never
+
+    var id: String { rawValue }
+
+    var label: String {
+        switch self {
+        case .complexOnly: return "Only when columns, tables or AI were involved"
+        case .always: return "Always"
+        case .never: return "Never"
+        }
+    }
+}
+
 /// How stacked items are glued together by Paste Stack.
 enum StackSeparator: String, CaseIterable, Codable, Identifiable {
     case newline
@@ -62,6 +100,13 @@ final class Preferences: ObservableObject {
         static let iCloudSync         = "iCloudSyncEnabled"
         static let recallAutoPaste    = "recallAutoPaste"
         static let captureWithoutKey  = "stackCapturesCopiesWithoutShortcut"
+        static let hotKeyCaptureText  = "hotKeyCaptureText"
+        static let captureFormatting  = "captureFormatting"
+        static let captureStyle       = "captureOutputStyle"
+        static let capturePreview     = "capturePreviewPolicy"
+        static let captureFixBullets  = "captureFixMisreadBullets"
+        static let captureHyphens     = "captureJoinHyphenatedWords"
+        static let captureJoinLines   = "captureJoinWrappedLines"
     }
 
     init(defaults: UserDefaults = .standard) {
@@ -81,6 +126,15 @@ final class Preferences: ObservableObject {
         recallAutoPaste = defaults.object(forKey: Key.recallAutoPaste) as? Bool ?? true
         clearStackAfterPaste = defaults.object(forKey: Key.clearAfterPaste) as? Bool ?? false
         captureCopiesWithoutShortcut = defaults.object(forKey: Key.captureWithoutKey) as? Bool ?? true
+        captureFormatting = defaults.string(forKey: Key.captureFormatting)
+            .flatMap(CaptureFormatting.init(rawValue:)) ?? .smart
+        captureOutputStyle = defaults.string(forKey: Key.captureStyle)
+            .flatMap(LayoutRenderer.Style.init(rawValue:)) ?? .plain
+        capturePreviewPolicy = defaults.string(forKey: Key.capturePreview)
+            .flatMap(CapturePreviewPolicy.init(rawValue:)) ?? .complexOnly
+        captureFixMisreadBullets = defaults.object(forKey: Key.captureFixBullets) as? Bool ?? true
+        captureJoinHyphenatedWords = defaults.object(forKey: Key.captureHyphens) as? Bool ?? true
+        captureJoinWrappedLines = defaults.object(forKey: Key.captureJoinLines) as? Bool ?? true
 
         pasteStackHotKey = Self.decode(defaults, Key.hotKeyPasteStack) ?? .defaultPasteStack
         resetStackHotKey = Self.decode(defaults, Key.hotKeyResetStack) ?? .defaultResetStack
@@ -93,6 +147,10 @@ final class Preferences: ObservableObject {
         switch Self.decodeOptional(defaults, Key.hotKeyToggleStack) {
         case .none:                  toggleStackModeHotKey = .defaultToggleStackMode
         case .some(let storedValue): toggleStackModeHotKey = storedValue
+        }
+        switch Self.decodeOptional(defaults, Key.hotKeyCaptureText) {
+        case .none:                  captureTextHotKey = .defaultCaptureText
+        case .some(let storedValue): captureTextHotKey = storedValue
         }
     }
 
@@ -144,6 +202,40 @@ final class Preferences: ObservableObject {
         didSet { defaults.set(recallAutoPaste, forKey: Key.recallAutoPaste) }
     }
 
+    // MARK: - Screen text capture
+
+    @Published var captureFormatting: CaptureFormatting {
+        didSet { defaults.set(captureFormatting.rawValue, forKey: Key.captureFormatting) }
+    }
+
+    @Published var captureOutputStyle: LayoutRenderer.Style {
+        didSet { defaults.set(captureOutputStyle.rawValue, forKey: Key.captureStyle) }
+    }
+
+    @Published var capturePreviewPolicy: CapturePreviewPolicy {
+        didSet { defaults.set(capturePreviewPolicy.rawValue, forKey: Key.capturePreview) }
+    }
+
+    @Published var captureFixMisreadBullets: Bool {
+        didSet { defaults.set(captureFixMisreadBullets, forKey: Key.captureFixBullets) }
+    }
+
+    @Published var captureJoinHyphenatedWords: Bool {
+        didSet { defaults.set(captureJoinHyphenatedWords, forKey: Key.captureHyphens) }
+    }
+
+    @Published var captureJoinWrappedLines: Bool {
+        didSet { defaults.set(captureJoinWrappedLines, forKey: Key.captureJoinLines) }
+    }
+
+    var captureLayoutOptions: LayoutOptions {
+        LayoutOptions(
+            fixMisreadBullets: captureFixMisreadBullets,
+            joinHyphenatedWords: captureJoinHyphenatedWords,
+            joinWrappedLines: captureJoinWrappedLines
+        )
+    }
+
     // MARK: - Shortcuts
 
     @Published var pasteStackHotKey: KeyCombo {
@@ -162,11 +254,16 @@ final class Preferences: ObservableObject {
         didSet { Self.encodeOptional(defaults, toggleStackModeHotKey, Key.hotKeyToggleStack) }
     }
 
+    @Published var captureTextHotKey: KeyCombo? {
+        didSet { Self.encodeOptional(defaults, captureTextHotKey, Key.hotKeyCaptureText) }
+    }
+
     func resetShortcutsToDefaults() {
         pasteStackHotKey = .defaultPasteStack
         resetStackHotKey = .defaultResetStack
         recallHotKey = .defaultRecall
         toggleStackModeHotKey = .defaultToggleStackMode
+        captureTextHotKey = .defaultCaptureText
     }
 
     // MARK: - First launch

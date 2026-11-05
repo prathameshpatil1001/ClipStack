@@ -15,6 +15,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var environment: AppEnvironment!
     private var statusItemController: StatusItemController!
     private var recallPanelController: SpotlightSearchPanelController!
+    private var textCapture: TextCaptureController!
     private let hud = HUDController()
 
     // Created lazily and reused; closing a window keeps the controller alive.
@@ -38,6 +39,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             profile: environment.profile,
             clipboard: environment.clipboard,
             preferences: environment.preferences
+        )
+
+        textCapture = TextCaptureController(
+            preferences: environment.preferences,
+            stack: environment.stack,
+            clipboard: environment.clipboard
         )
 
         wireHUD()
@@ -69,6 +76,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         environment.stack.onHUD = { [weak self] message, symbol in
             self?.hud.show(message, symbol: symbol)
         }
+        textCapture.onHUD = { [weak self] message, symbol in
+            self?.hud.show(message, symbol: symbol, duration: message.count > 30 ? 4 : 1.6)
+        }
         recallPanelController.onHUD = { [weak self] message, symbol in
             // "Copied ✓" is read at a glance; an explanation needs time.
             self?.hud.show(message, symbol: symbol, duration: message.count > 30 ? 5 : 1.4)
@@ -82,6 +92,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             openRecallPanel: { [weak self] in self?.showRecallPanel() },
             openWebsites: { [weak self] in self?.showWebsites() },
             openProfile: { [weak self] in self?.showProfile() },
+            captureText: { [weak self] in
+                self?.statusItemController?.closePopover()
+                // Let the dropdown finish closing before the screen is frozen.
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
+                    self?.textCapture.begin()
+                }
+            },
             openWebsite: { [weak self] website in
                 self?.statusItemController?.closePopover()
                 self?.openWebsite(website)
@@ -104,6 +121,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         hotKeys.setHandler(for: .recall) { [weak self] in
             self?.recallPanelController.toggle()
+        }
+
+        hotKeys.setHandler(for: .captureText) { [weak self] in
+            self?.textCapture.begin()
         }
 
         hotKeys.setHandler(for: .toggleStackMode) { [weak self] in

@@ -17,12 +17,14 @@ struct SettingsView: View {
                 .tabItem { Label("Stack", systemImage: "square.3.layers.3d") }
             savedTextsTab
                 .tabItem { Label("Saved Texts", systemImage: "text.book.closed") }
+            captureTab
+                .tabItem { Label("Capture", systemImage: "text.viewfinder") }
             shortcutsTab
                 .tabItem { Label("Shortcuts", systemImage: "command") }
             permissionsTab
                 .tabItem { Label("Permissions", systemImage: "lock.shield") }
         }
-        .frame(width: 520, height: 400)
+        .frame(width: 560, height: 440)
         .alert("Permission switch on, but ClipStack still can't see ⌘C?", isPresented: $showingResetHelp) {
             Button("Copy Command") {
                 ClipboardManager.shared.write("tccutil reset All com.prathamesh.ClipStack")
@@ -183,6 +185,78 @@ struct SettingsView: View {
         .formStyle(.grouped)
     }
 
+    // MARK: - Capture
+
+    private var captureTab: some View {
+        Form {
+            Section {
+                Picker("Formatting", selection: $preferences.captureFormatting) {
+                    ForEach(CaptureFormatting.allCases) { option in
+                        Text(option.label).tag(option)
+                    }
+                }
+                Text(captureFormattingHelp)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+
+                Picker("Output", selection: $preferences.captureOutputStyle) {
+                    ForEach(LayoutRenderer.Style.allCases) { style in
+                        Text(style.label).tag(style)
+                    }
+                }
+
+                Picker("Show a preview", selection: $preferences.capturePreviewPolicy) {
+                    ForEach(CapturePreviewPolicy.allCases) { policy in
+                        Text(policy.label).tag(policy)
+                    }
+                }
+            } header: {
+                Text("Capture text from screen (\(preferences.captureTextHotKey?.displayString ?? "no shortcut"))")
+            } footer: {
+                Text("Captured text goes into the stack while Stack Mode is on, and onto the clipboard otherwise — with real bullets and tables for apps like Notes, Pages and Docs. Hold ⌥ when you let go of the drag for the text exactly as read.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+
+            Section("Fixes to the recognised text") {
+                Toggle("Turn a bullet read as “e” or “o” back into •", isOn: $preferences.captureFixMisreadBullets)
+                Toggle("Join words hyphenated across a line break", isOn: $preferences.captureJoinHyphenatedWords)
+                Toggle("Join lines that wrap within a paragraph or item", isOn: $preferences.captureJoinWrappedLines)
+                Text("These are the only changes made to characters. Formatting never adds, drops or rewords anything.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
+            Section("Permission") {
+                permissionRow(
+                    title: "Screen Recording",
+                    granted: ScreenRecordingPermission.isGranted,
+                    request: { ScreenRecordingPermission.request() },
+                    open: { ScreenRecordingPermission.openSettings() }
+                )
+                Text("Needed to read the screen. macOS applies it after ClipStack is reopened.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+        }
+        .formStyle(.grouped)
+    }
+
+    private var captureFormattingHelp: String {
+        switch preferences.captureFormatting {
+        case .off:
+            return "Rows of text top to bottom, as Shottr or Live Text would give them."
+        case .layout:
+            return "Columns in the right order, bullets and numbering with their nesting, questions with their options, paragraphs, headings and tables."
+        case .smart:
+            return OnDeviceAI.isAvailable
+                ? "Layout rules, plus Apple's on-device model to settle the reading order of captures with columns or side-by-side text. It can only reorder and group lines, never change them."
+                : "Layout rules for now: \(OnDeviceAI.unavailableReason ?? "Apple Intelligence isn't available.")"
+        }
+    }
+
     // MARK: - Shortcuts
 
     private var shortcutsTab: some View {
@@ -221,6 +295,15 @@ struct SettingsView: View {
                     allowsClearing: true
                 ) { new in
                     preferences.toggleStackModeHotKey = new
+                    environment.applyHotKeyBindings()
+                }
+
+                shortcutRow(
+                    action: .captureText,
+                    combo: preferences.captureTextHotKey,
+                    allowsClearing: true
+                ) { new in
+                    preferences.captureTextHotKey = new
                     environment.applyHotKeyBindings()
                 }
             } footer: {

@@ -8,6 +8,17 @@ and this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 ## [Unreleased]
 
 ### Added
+- **Screen text capture (⌥⌘T).** Drag over anything on screen and its text
+  goes into the stack (or onto the clipboard, with real bullets and tables for
+  Notes, Pages and Docs), with its layout rebuilt: bullets, including ones
+  recognition misses (found in the pixels), nested lists, numbered questions
+  with their options, joined paragraphs, headings, tables, and columns in the
+  right order. Text side by side (an MCQ answer column) is read across;
+  newspaper columns are read down. Smart mode lets Apple's on-device model
+  settle the reading order of such captures, by line numbers only, accepted
+  only if every line is used exactly once. Complex captures are previewed
+  first, with the text as read one click away; ⌥ on release gives raw text.
+  Needs macOS 14 and Screen Recording.
 - **AI edit mode in ⌥Space (⌘↩).** Edit the clipboard, or a highlighted saved
   text, one instruction at a time: "fill in my details", "add my PRN at the
   end". Each step is applied as exact edits, never a rewrite. Anything that

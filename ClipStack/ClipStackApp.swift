@@ -18,5 +18,14 @@ struct ClipStackApp: App {
         // AppDelegate so it can be positioned and focused the way a menu bar
         // utility needs.
         Settings { EmptyView() }
+            .commands {
+                // While a ClipStack window is open the app shows a regular menu
+                // bar (see WindowActivationPolicy). Its "Settings…" item would
+                // otherwise open the empty placeholder scene above.
+                CommandGroup(replacing: .appSettings) {
+                    Button("Settings\u{2026}") { appDelegate.showSettings() }
+                        .keyboardShortcut(",", modifiers: .command)
+                }
+            }
     }
 }

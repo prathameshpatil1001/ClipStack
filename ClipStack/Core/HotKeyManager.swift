@@ -26,6 +26,8 @@ enum HotKeyAction: String, CaseIterable, Identifiable {
     case resetStack
     case recall
     case toggleStackMode
+    case captureText
+    case formatStack
 
     var id: String { rawValue }
 
@@ -35,6 +37,8 @@ enum HotKeyAction: String, CaseIterable, Identifiable {
         case .resetStack:      return "Reset Stack"
         case .recall:          return "Recall Saved Text"
         case .toggleStackMode: return "Toggle Stack Mode"
+        case .captureText:     return "Capture Text from Screen"
+        case .formatStack:     return "Paste Stack Formatted"
         }
     }
 
@@ -44,6 +48,8 @@ enum HotKeyAction: String, CaseIterable, Identifiable {
         case .resetStack:      return "Empty the current stack."
         case .recall:          return "Open the saved-text search panel."
         case .toggleStackMode: return "Turn Stack Mode on or off from anywhere."
+        case .captureText:     return "Drag over anything on screen to read its text into the stack."
+        case .formatStack:     return "The whole stack as one tidy document: lists, numbering, tables."
         }
     }
 }
@@ -149,6 +155,8 @@ final class HotKeyManager {
             .resetStack: preferences.resetStackHotKey,
             .recall: preferences.recallHotKey,
             .toggleStackMode: preferences.toggleStackModeHotKey,
+            .captureText: preferences.captureTextHotKey,
+            .formatStack: preferences.formatStackHotKey,
         ]
 
         for (action, combo) in desired {

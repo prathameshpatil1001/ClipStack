@@ -28,10 +28,92 @@ final class ClipboardManager {
         pasteboard.string(forType: .string)
     }
 
+    /// The change count of ClipStack's own most recent write, so the clipboard
+    /// watcher can tell "ClipStack put this here" (pasting the stack, recalling
+    /// a saved text, Copy in a context menu) from the user copying something.
+    private(set) var lastOwnWriteChangeCount = -1
+
     @discardableResult
     func write(_ string: String) -> Bool {
         pasteboard.clearContents()
-        return pasteboard.setString(string, forType: .string)
+        let written = pasteboard.setString(string, forType: .string)
+        lastOwnWriteChangeCount = pasteboard.changeCount
+        return written
+    }
+
+    /// Writes text plus a formatted copy (HTML, and RTF made from it), so apps
+    /// that understand formatting paste real bullets and tables while plain
+    /// text editors get the text.
+    @discardableResult
+    func write(_ string: String, html: String) -> Bool {
+        // Converted before the pasteboard is touched: HTML import spins the
+        // run loop, and the Stack Mode watcher must never see a half-written
+        // clipboard it doesn't yet know is ClipStack's own.
+        let rtf: Data? = (try? NSAttributedString(
+            data: Data(html.utf8),
+            options: [
+                .documentType: NSAttributedString.DocumentType.html,
+                .characterEncoding: String.Encoding.utf8.rawValue,
+            ],
+            documentAttributes: nil
+        )).flatMap { attributed in
+            try? attributed.data(
+                from: NSRange(location: 0, length: attributed.length),
+                documentAttributes: [.documentType: NSAttributedString.DocumentType.rtf]
+            )
+        }
+
+        pasteboard.clearContents()
+        var written = pasteboard.setString(string, forType: .string)
+        written = pasteboard.setString(html, forType: .html) && written
+        if let rtf {
+            pasteboard.setData(rtf, forType: .rtf)
+        }
+        lastOwnWriteChangeCount = pasteboard.changeCount
+        return written
+    }
+
+    // MARK: - Watching for copies made without ⌘C
+
+    /// What the pasteboard holds compared with what the caller has consumed.
+    enum PasteboardChange: Equatable {
+        /// Nothing newer than the watermark.
+        case unchanged
+        /// New text, from any app.
+        case text(text: String, changeCount: Int)
+        /// Something new that should never be stacked: ClipStack's own write, or
+        /// an item the writer marked private or transient (password managers).
+        case ignored(changeCount: Int)
+        /// Something new without text: an image or a file — or text whose data
+        /// has not been written yet, which is why callers retry briefly.
+        case notText(changeCount: Int)
+    }
+
+    /// Markers from the nspasteboard.org convention. Password managers set the
+    /// concealed type on passwords; transient means "do not keep a history".
+    static let privacyMarkerTypes: Set<NSPasteboard.PasteboardType> = [
+        NSPasteboard.PasteboardType("org.nspasteboard.ConcealedType"),
+        NSPasteboard.PasteboardType("org.nspasteboard.TransientType"),
+    ]
+
+    /// Classifies the pasteboard without waiting. Used by Stack Mode's clipboard
+    /// watcher, which catches copies that never press ⌘C — screenshot-to-text
+    /// tools such as Shottr, Edit ▸ Copy, right-click ▸ Copy, "Copy" buttons.
+    func inspectChange(after consumedThrough: Int) -> PasteboardChange {
+        let current = pasteboard.changeCount
+        guard current > consumedThrough else { return .unchanged }
+
+        if current == lastOwnWriteChangeCount {
+            return .ignored(changeCount: current)
+        }
+        let types = pasteboard.types ?? []
+        if types.contains(where: { Self.privacyMarkerTypes.contains($0) }) {
+            return .ignored(changeCount: current)
+        }
+        guard let text = pasteboard.string(forType: .string), !text.isEmpty else {
+            return .notText(changeCount: current)
+        }
+        return .text(text: text, changeCount: current)
     }
 
     /// The text a copy produced, plus the change count it arrived at.
@@ -70,7 +152,10 @@ final class ClipboardManager {
 
         while ContinuousClock.now < deadline {
             let current = pasteboard.changeCount
-            if current > consumedThrough() {
+            // ClipStack's own write (recall, an AI edit step, a capture) is
+            // not something the user copied: a ⌘C that copied nothing must
+            // not stack it.
+            if current > consumedThrough(), current != lastOwnWriteChangeCount {
                 // The counter can move a beat before the data is written, so an
                 // empty read here means "not ready yet", not "not text".
                 if let text = pasteboard.string(forType: .string), !text.isEmpty {

@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<!-- The entitlements ClipStack is signed with (CODE_SIGN_ENTITLEMENTS).
+
+	     Hardened runtime blocks Apple Events unless this is present, and it does
+	     so silently: no prompt, the event simply fails. ClipStack sends one kind
+	     of Apple Event, to Safari, to load a saved website into a window of the
+	     chosen profile; macOS still asks the user the first time.
+
+	     Needs no provisioning, unlike the iCloud entitlement, which is kept apart
+	     in ClipStack.entitlements so a fresh clone signs without an iCloud App ID.
+	     See the README to enable iCloud sync. -->
+	<key>com.apple.security.automation.apple-events</key>
+	<true/>
+</dict>
+</plist>

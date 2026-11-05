@@ -20,15 +20,26 @@ struct GlassSurface<SurfaceShape: InsettableShape>: ViewModifier {
 
     @ViewBuilder
     func body(content: Content) -> some View {
+        // `glassEffect` exists only in the macOS 26 SDK (Swift 6.2 and later).
+        // Building with an older SDK — CI's Xcode 16 — falls back to the
+        // material, as running on an older macOS does.
+        #if compiler(>=6.2)
         if #available(macOS 26, *) {
             content.glassEffect(.regular, in: shape)
         } else {
-            // Glass draws its own edge; the flat material needs a hairline to
-            // separate it from a light background behind.
-            content
-                .background(.regularMaterial, in: shape)
-                .overlay(shape.strokeBorder(Color.primary.opacity(0.12), lineWidth: 1))
+            material(content)
         }
+        #else
+        material(content)
+        #endif
+    }
+
+    /// Glass draws its own edge; the flat material needs a hairline to
+    /// separate it from a light background behind.
+    private func material(_ content: Content) -> some View {
+        content
+            .background(.regularMaterial, in: shape)
+            .overlay(shape.strokeBorder(Color.primary.opacity(0.12), lineWidth: 1))
     }
 }
 

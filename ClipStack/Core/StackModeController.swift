@@ -30,6 +30,16 @@
 //  cannot consume or alter the event — so the safety property holds either way.
 //  The practical result: granting Accessibility alone makes the whole app work.
 //
+//  ── Copies that never press ⌘C ──────────────────────────────────────────────
+//  Plenty of copies happen without the keystroke: screenshot-to-text tools such
+//  as Shottr, Edit ▸ Copy, right-click ▸ Copy, "Copy" buttons in web pages. A
+//  keystroke-only design misses them, and worse, leaves them sitting newer than
+//  the watermark, so the *next* ⌘C picks up the stale one alongside its own.
+//  A clipboard watcher therefore polls the pasteboard's change count a few
+//  times a second while Stack Mode is on (reading a counter is free), and takes
+//  anything new through the same watermark as the keystroke routes, so a copy
+//  is stacked exactly once whichever path sees it first.
+//
 
 import AppKit
 import Carbon.HIToolbox
@@ -42,6 +52,20 @@ struct StackEntry: Identifiable, Hashable {
     let id = UUID()
     var text: String
     var capturedAt: Date = Date()
+    /// Set for text read from the screen: both versions and the layout, so
+    /// the item can be flipped between them and Format Stack can reuse it.
+    var capture: CapturedText?
+}
+
+/// A screen capture's two versions.
+struct CapturedText: Hashable {
+    /// The rebuilt layout; empty when the capture was taken as raw text.
+    var blocks: [LayoutBlock]
+    var formattedText: String
+    var rawText: String
+    var showsRaw: Bool
+
+    var canSwitch: Bool { !blocks.isEmpty && formattedText != rawText }
 }
 
 @MainActor
@@ -101,6 +125,14 @@ final class StackModeController: ObservableObject {
     private var runLoopSource: CFRunLoopSource?
     private var globalKeyMonitor: Any?
     private var autoClearTimer: Timer?
+    private var clipboardWatchTimer: Timer?
+
+    /// Changes the clipboard watcher has decided to leave alone (private items,
+    /// non-text copies). Kept apart from `consumedChangeCount` on purpose: the
+    /// watcher skipping something must not stop an explicit ⌘C from taking it.
+    private var watcherSkippedThrough = 0
+    private var unreadableChangeCount = 0
+    private var unreadablePolls = 0
 
     /// The highest pasteboard change count ClipStack has already taken.
     ///
@@ -133,6 +165,7 @@ final class StackModeController: ObservableObject {
         if let globalKeyMonitor {
             NSEvent.removeMonitor(globalKeyMonitor)
         }
+        clipboardWatchTimer?.invalidate()
     }
 
     // MARK: - Enabling
@@ -225,6 +258,34 @@ final class StackModeController: ObservableObject {
         }
     }
 
+    /// Format Stack's result: like Paste Stack, but with a formatted copy on
+    /// the clipboard alongside the text.
+    /// - Parameter targetApp: the app to paste into, when focus has to come
+    ///   back to it first (after the preview).
+    func pasteFormatted(text: String, html: String?, itemCount: Int, targetApp: NSRunningApplication?) {
+        let written = html.map { clipboard.write(text, html: $0) } ?? clipboard.write(text)
+        guard written else {
+            onHUD?("Could not write clipboard", "exclamationmark.triangle")
+            return
+        }
+        consumedChangeCount = clipboard.changeCount
+
+        guard preferences.autoPasteEnabled else {
+            onHUD?("Formatted stack copied (\(itemCount)) — press ⌘V", "doc.on.clipboard")
+            finishPaste()
+            return
+        }
+
+        Task { @MainActor in
+            let pasted = await PasteSimulator.pasteIntoFrontmostApp(afterActivating: targetApp)
+            onHUD?(pasted
+                   ? "Pasted formatted stack (\(itemCount))"
+                   : "Formatted stack copied (\(itemCount)) — press ⌘V",
+                   pasted ? "checkmark.circle.fill" : "doc.on.clipboard")
+            finishPaste()
+        }
+    }
+
     private func finishPaste() {
         if preferences.clearStackAfterPaste {
             entries.removeAll()
@@ -286,6 +347,25 @@ final class StackModeController: ObservableObject {
         }
         consumedChangeCount = clipboard.changeCount
         append(text)
+    }
+
+    /// Adds text read from the screen, keeping both of its versions.
+    func addCaptured(_ text: String, capture: CapturedText?) {
+        entries.append(StackEntry(text: text, capture: capture))
+        onStackChanged?()
+        onHUD?("Added to stack (\(entries.count))", "text.viewfinder")
+        scheduleAutoClearIfNeeded()
+    }
+
+    /// Flips a captured item between its formatted text and the text as read.
+    func toggleCapturedVersion(_ entry: StackEntry) {
+        guard let index = entries.firstIndex(where: { $0.id == entry.id }),
+              var capture = entries[index].capture, capture.canSwitch
+        else { return }
+        capture.showsRaw.toggle()
+        entries[index].capture = capture
+        entries[index].text = capture.showsRaw ? capture.rawText : capture.formattedText
+        onStackChanged?()
     }
 
     private func append(_ text: String) {
@@ -353,6 +433,8 @@ final class StackModeController: ObservableObject {
             // Start from whatever is on the clipboard now, so the first ⌘C
             // captures that copy rather than something copied before arming.
             consumedChangeCount = clipboard.changeCount
+            watcherSkippedThrough = consumedChangeCount
+            startWatchingClipboard()
         }
         return !routes.isEmpty
     }
@@ -360,7 +442,63 @@ final class StackModeController: ObservableObject {
     private func stopCapturing() {
         uninstallEventTap()
         uninstallGlobalMonitor()
+        stopWatchingClipboard()
         captureRoutes = []
+    }
+
+    // MARK: Clipboard watcher (no permission needed)
+
+    /// How often the watcher looks. Only the change count is read on a quiet
+    /// tick, which costs nothing; text is read only when it has moved.
+    private static let clipboardWatchInterval: TimeInterval = 0.25
+
+    /// Polls for a change this many times before deciding it holds no text.
+    /// The counter can move a beat before the writer finishes, so one empty
+    /// read is not proof of an image or file.
+    private static let unreadablePollLimit = 4
+
+    private func startWatchingClipboard() {
+        guard clipboardWatchTimer == nil else { return }
+        let timer = Timer(timeInterval: Self.clipboardWatchInterval, repeats: true) { [weak self] _ in
+            Task { @MainActor in self?.pollClipboard() }
+        }
+        timer.tolerance = 0.05
+        // Common modes, so copies still register while a menu is being tracked.
+        RunLoop.main.add(timer, forMode: .common)
+        clipboardWatchTimer = timer
+    }
+
+    private func stopWatchingClipboard() {
+        clipboardWatchTimer?.invalidate()
+        clipboardWatchTimer = nil
+    }
+
+    /// One watcher tick: take any new text the keystroke routes have not.
+    private func pollClipboard() {
+        guard isEnabled, preferences.captureCopiesWithoutShortcut else { return }
+
+        let watermark = max(consumedChangeCount, watcherSkippedThrough)
+        switch clipboard.inspectChange(after: watermark) {
+        case .unchanged:
+            return
+
+        case .text(let text, let changeCount):
+            consumedChangeCount = changeCount
+            append(text)
+
+        case .ignored(let changeCount):
+            watcherSkippedThrough = changeCount
+
+        case .notText(let changeCount):
+            if changeCount != unreadableChangeCount {
+                unreadableChangeCount = changeCount
+                unreadablePolls = 0
+            }
+            unreadablePolls += 1
+            if unreadablePolls >= Self.unreadablePollLimit {
+                watcherSkippedThrough = changeCount
+            }
+        }
     }
 
     // MARK: Event tap (Input Monitoring)

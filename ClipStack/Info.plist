@@ -36,10 +36,11 @@
 	<key>NSAccessibilityUsageDescription</key>
 	<string>ClipStack needs Accessibility access to notice when you press Cmd+C while Stack Mode is on, and to paste the assembled stack into the app you are working in.</string>
 
-	<!-- Auto-paste synthesizes a Cmd+V keystroke into the frontmost app. macOS
-	     surfaces this to the user as input monitoring / automation of other apps. -->
+	<!-- Shown in the Automation prompt. The only Apple Event ClipStack sends is to
+	     Safari, to load a saved website into a new window of the chosen profile.
+	     (Auto-paste posts a keystroke instead, which Accessibility covers.) -->
 	<key>NSAppleEventsUsageDescription</key>
-	<string>ClipStack sends a paste keystroke to the app you are working in when Paste Stack is set to auto-paste.</string>
+	<string>ClipStack opens your saved websites in the Safari profile you chose for them.</string>
 	<key>NSInputMonitoringUsageDescription</key>
 	<string>ClipStack watches for the Cmd+C keystroke so it can add what you copy to the current stack.</string>
 

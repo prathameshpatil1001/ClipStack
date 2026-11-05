@@ -9,6 +9,12 @@ let totalFailures = FuzzySearchChecks.run()
     + SyncMergeChecks.run()
     + (await ClipboardChecks.run())
     + (await SnippetStoreChecks.run())
+    + (await WebsiteChecks.run())
+    + (await TemplateFillChecks.run())
+    + (await ProfileChecks.run())
+    + (await TextLayoutChecks.run())
+    + (await StackFormatChecks.run())
+    + (await MarkerRecoveryChecks.run())
 
 print("")
 if totalFailures == 0 {

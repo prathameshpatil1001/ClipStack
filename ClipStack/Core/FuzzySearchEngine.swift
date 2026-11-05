@@ -2,7 +2,8 @@
 //  FuzzySearchEngine.swift
 //  ClipStack
 //
-//  Ranking for the ⌥Space recall panel.
+//  Ranking for the ⌥Space recall panel, which searches saved texts and saved
+//  websites together.
 //
 //  Match quality is tiered, strongest first:
 //    1. prefix        — the field starts with the query
@@ -22,6 +23,44 @@ struct SnippetSearchResult: Identifiable, Hashable {
     let snippet: Snippet
     let score: Double
     var id: UUID { snippet.id }
+}
+
+struct WebsiteSearchResult: Identifiable, Hashable {
+    let website: Website
+    let score: Double
+    var id: UUID { website.id }
+}
+
+/// One row of the recall panel: a saved text or a saved website.
+enum RecallItem: Identifiable, Hashable {
+    case snippet(Snippet)
+    case website(Website)
+
+    nonisolated var id: UUID {
+        switch self {
+        case .snippet(let snippet): return snippet.id
+        case .website(let website): return website.id
+        }
+    }
+
+    /// Pinned snippets stay on top of everything, websites included.
+    nonisolated var isPinned: Bool {
+        if case .snippet(let snippet) = self { return snippet.isPinned }
+        return false
+    }
+
+    nonisolated var title: String {
+        switch self {
+        case .snippet(let snippet): return snippet.displayTitle
+        case .website(let website): return website.displayName
+        }
+    }
+}
+
+struct RecallResult: Identifiable, Hashable {
+    let item: RecallItem
+    let score: Double
+    var id: UUID { item.id }
 }
 
 enum FuzzySearchEngine {
@@ -71,6 +110,71 @@ enum FuzzySearchEngine {
         }
 
         return Array(scored.sorted(by: ordering).prefix(limit))
+    }
+
+    /// Ranks `websites` against `query` by name, host, address and the
+    /// profile it opens in, with the same tiers as snippets. An empty query
+    /// matches nothing: websites only ever appear in answer to typing.
+    nonisolated static func search(
+        _ query: String,
+        in websites: [Website],
+        limit: Int = 50
+    ) -> [WebsiteSearchResult] {
+        let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return [] }
+
+        let needle = normalize(trimmed)
+        let needleChars = Array(needle)
+
+        let scored: [WebsiteSearchResult] = websites.compactMap { website in
+            var best: Double?
+            func consider(_ field: String?, weight: Double) {
+                guard let field,
+                      let value = fieldScore(needle: needle, needleChars: needleChars, field: field)
+                else { return }
+                let weighted = value * weight
+                if best == nil || weighted > best! { best = weighted }
+            }
+
+            consider(website.name, weight: 1.0)
+            // "git" should find github.com as a prefix, not via "www.".
+            consider(website.url?.host.map(stripWWW), weight: hostWeight)
+            consider(website.address, weight: bodyWeight)
+            // "work" finds the sites that open in the Work profile.
+            consider(website.browser.profileName, weight: tagWeight)
+
+            guard let best else { return nil }
+            return WebsiteSearchResult(website: website, score: best)
+        }
+
+        return Array(scored.sorted { lhs, rhs in
+            if lhs.score != rhs.score { return lhs.score > rhs.score }
+            return lhs.website.displayName.localizedCaseInsensitiveCompare(rhs.website.displayName) == .orderedAscending
+        }.prefix(limit))
+    }
+
+    /// The panel's list: snippets and websites in one ranking. Pinned snippets
+    /// first, as always; after that the better match wins, whichever kind it is.
+    nonisolated static func merge(
+        snippets: [SnippetSearchResult],
+        websites: [WebsiteSearchResult],
+        limit: Int = 50
+    ) -> [RecallResult] {
+        let combined = snippets.map { RecallResult(item: .snippet($0.snippet), score: $0.score) }
+            + websites.map { RecallResult(item: .website($0.website), score: $0.score) }
+
+        return Array(combined.sorted { lhs, rhs in
+            if lhs.item.isPinned != rhs.item.isPinned { return lhs.item.isPinned }
+            if lhs.score != rhs.score { return lhs.score > rhs.score }
+            return lhs.item.title.localizedCaseInsensitiveCompare(rhs.item.title) == .orderedAscending
+        }.prefix(limit))
+    }
+
+    /// A host hit is nearly as telling as a name hit.
+    private nonisolated static let hostWeight: Double = 0.9
+
+    private nonisolated static func stripWWW(_ host: String) -> String {
+        host.lowercased().hasPrefix("www.") ? String(host.dropFirst(4)) : host
     }
 
     // MARK: - Ordering

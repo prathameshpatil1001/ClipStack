@@ -1,13 +1,28 @@
 # ClipStack
 
-A macOS menu bar utility with two features:
+A macOS menu bar utility with five features:
 
-1. **Stack Mode** — while it is on, every <kbd>⌘C</kbd> appends to an ordered stack instead of
-   overwriting the clipboard. Paste the whole stack back in one go, joined with a separator you choose.
+1. **Stack Mode** — while it is on, everything you copy appends to an ordered stack instead of
+   overwriting the clipboard: <kbd>⌘C</kbd>, and also copies that never press it (Shottr and other
+   screenshot-to-text tools, Edit ▸ Copy, right-click ▸ Copy). Paste the whole stack back in one
+   go, joined with a separator you choose.
 2. **Saved Texts** — a local snippet library with a Spotlight-style recall panel on
    <kbd>⌥Space</kbd>, live fuzzy search, and optional iCloud sync across your Macs.
+3. **Websites** — sites you open all the time, one click from the menu bar or a few keystrokes in
+   <kbd>⌥Space</kbd>, each in the browser you pick for it (or the system default) and, for Safari,
+   Chrome, Brave, Edge, Vivaldi and Firefox, in a specific **profile**.
+4. **AI edit mode and Profile** — copy an AI-written email, form or command with placeholders,
+   press <kbd>⌥Space</kbd> then <kbd>⌘↩</kbd>, and say "fill in my details". ClipStack fills them
+   from your **Profile** (name, PRN, servers, project paths…) using Apple's on-device model, and
+   changes nothing you didn't ask it to. Everything stays on your Mac.
+5. **Screen text capture** — <kbd>⌥⌘T</kbd>, drag over anything on screen, and its text goes into
+   the stack with its **layout rebuilt**: bullets (even the ones text recognition misses), nested
+   lists, questions with their options, paragraphs, and columns read in the right order —
+   including MCQ answers sitting in a second column. Replaces the Shottr step.
 
-No Dock icon, no app switcher entry — it lives entirely in the menu bar (`LSUIElement`).
+No Dock icon, no app switcher entry — it lives in the menu bar (`LSUIElement`). The one exception:
+while a ClipStack window (Saved Texts, Websites, Profile, Settings) is open, it shows a Dock icon and a
+normal menu bar, and goes back to menu-bar-only when you close it.
 
 ---
 
@@ -93,6 +108,11 @@ Settings ▸ Permissions shows both switches and which capture route is live.
 | Paste Stack loading the clipboard | No |
 | Capturing ⌘C into the stack | **Yes** — Accessibility or Input Monitoring |
 | Auto-pasting (Paste Stack, and ↩ in the recall panel) | **Yes** — Accessibility |
+| Websites in the default browser, or in a Chrome/Brave/Edge/Firefox profile | No |
+| Websites in a **Safari** profile | **Yes** — Accessibility, plus Automation for Safari (macOS asks once) |
+| Profile, and Quick fill (<kbd>⌥↩</kbd>) in edit mode | No |
+| AI edits (<kbd>⌘↩</kbd>) and "Tell ClipStack about you" | No permission — but macOS 26 with Apple Intelligence on |
+| Screen text capture (<kbd>⌥⌘T</kbd>) | **Yes** — Screen Recording (macOS 14+) |
 
 If permission is missing, Stack Mode refuses to switch on and says why;
 everything else carries on. Grant it later and ClipStack arms itself within
@@ -160,13 +180,16 @@ Every shortcut is remappable in **Settings ▸ Shortcuts** and stored in `UserDe
 | <kbd>⌥⌘X</kbd> | **Reset Stack** — empty the stack |
 | <kbd>⌥⌘S</kbd> | **Toggle Stack Mode** — turn stacking on or off from anywhere |
 | <kbd>⌥Space</kbd> | **Recall** — open the saved-text search panel |
+| <kbd>⌥⌘T</kbd> | **Capture Text from Screen** — drag over text to read it into the stack |
+| <kbd>⌃⌥⌘V</kbd> | **Paste Stack Formatted** — the whole stack as one tidy document (see below) |
 
 The panel opens as a bare search field — it never puts your saved texts on screen until you type —
 and grows downwards into results from a fixed top edge, the way Spotlight does.
 
 In the recall panel: <kbd>↑</kbd>/<kbd>↓</kbd> (or <kbd>⌃P</kbd>/<kbd>⌃N</kbd>) move the highlight
 and wrap around, <kbd>↩</kbd> pastes the snippet into the app you came from (or just copies it, if
-you turn auto-paste off), <kbd>esc</kbd> closes with no action.
+you turn auto-paste off), <kbd>⌘1</kbd>–<kbd>⌘9</kbd> pick a row directly, <kbd>⌘↩</kbd> switches to
+AI edit mode (below), <kbd>esc</kbd> closes with no action.
 
 `⌘C` is deliberately not remappable: ClipStack observes the system-wide copy keystroke without
 changing what it does, rather than binding a hotkey of its own.
@@ -180,6 +203,9 @@ Clearing the Toggle Stack Mode shortcut sticks — it will not reappear on the n
 - **Join items with** — new line (default), blank line, space, comma, or a custom string
 - **Paste automatically** — press <kbd>⌘V</kbd> for you, or just load the clipboard (on by default)
 - **Empty the stack after pasting** — off by default
+- **Also add copies made without ⌘C** — Shottr, Edit ▸ Copy, right-click ▸ Copy (**on** by default).
+  ClipStack watches the clipboard while Stack Mode is on; items a password manager marks as
+  private (`org.nspasteboard.ConcealedType`) are skipped
 - **Auto-clear** — drop the stack after 1/5/15/60 minutes of inactivity (**off** by default)
 - **Paste straight into the app on ↩** — recall-panel auto-paste (**on** by default)
 - **Sync saved texts across my Macs** — iCloud (**off** by default, see below)
@@ -190,6 +216,142 @@ Clearing the Toggle Stack Mode shortcut sticks — it will not reappear on the n
 - iCloud sync toggle and live status
 
 **Shortcuts** — rebind anything; conflicts with macOS or another app are reported inline.
+
+## Screen text capture
+
+Press <kbd>⌥⌘T</kbd> (or menu bar ▸ **Capture Text from Screen**). The screens freeze, exactly as
+they were — menus and hover states included — and you drag a box over the text. It is read with
+Apple's on-device text recognition and lands in the **stack** while Stack Mode is on, or on the
+**clipboard** otherwise, where it carries real formatting too: Notes, Pages, Mail and Google Docs
+paste actual bullets and tables, plain-text apps get the text.
+
+Plain OCR gives you rows of text. ClipStack rebuilds the layout from where each line sits:
+
+- **Bullets** — including the ones recognition drops or reads as "e": the pixels just left of each
+  line are checked for a bullet-shaped mark. Indentation gives the nesting.
+- **Numbered items and MCQs** — `1.`, `Q3`, `(a)`, `ii.`; options sit one level under their question.
+- **Paragraphs** — lines that wrap are joined (hyphenated words too); a short line like a sign-off
+  keeps its line break.
+- **Columns** — a vertical strip no text crosses is a gutter. If the text on either side lines up
+  row by row (a question and its answer, a table), it is read **across**; if not (two columns of
+  running text), each column is read **down**, left first. Plain OCR interleaves those.
+- **Headings** and **tables** (tab-separated in plain text, a table in Markdown and in Notes/Docs).
+
+On **macOS 26** the capture is read with Apple's **document recognition**, which understands lists,
+tables and titles itself: tables come out cell by cell even without clear gaps between columns,
+a list item's marker is applied to its first line (a bullet the pixels didn't show, or a `1.` the
+line's text left out), and title lines become headings. Columns, nesting and paragraphs are still
+worked out by the rules above. It can be turned off in Settings ▸ Capture; older macOS uses line
+recognition.
+
+**Smart** formatting (the default) also asks Apple's on-device model to settle the reading order
+of captures with columns or side-by-side text. It is shown only numbered lines and their positions,
+and may only answer with an order and a kind for each group of lines — never text — and its answer
+is used only if it accounts for every line exactly once. Otherwise the layout rules stand.
+
+Simple captures go straight in. A capture with columns, side-by-side text or an AI-chosen order is
+shown first, with **Formatted / As read** and **Plain / Markdown** to switch between; that can be
+changed in **Settings ▸ Capture**. Hold <kbd>⌥</kbd> as you let go of the drag to get the text
+exactly as read.
+
+The only changes made to characters are three fixes, each of which can be turned off in
+Settings ▸ Capture: a misread bullet back to •, a word hyphenated across a line break, and wrapped
+lines joined. Nothing else is added, dropped or reworded.
+
+Needs macOS 14 and the **Screen Recording** permission (macOS asks the first time; reopen
+ClipStack after granting it).
+
+### Format Stack
+
+<kbd>⌃⌥⌘V</kbd> (or **Paste Formatted** in the menu) is Paste Stack with the layout tidied: the whole
+stack becomes one structured document, pasted for you if auto-paste is on, with real bullets and
+tables for Notes, Pages, Mail and Docs.
+
+- A **screen capture** keeps the layout it was given when it was captured.
+- **Copied text** is laid out by its own structure: indentation, `•`/`-`/`1.`/`(a)` markers, Markdown
+  headings and tables, tab-separated rows, blank lines. Code and commands are kept verbatim.
+- Items are joined with a paragraph break, except where one carries on from the last: bullets
+  copied one at a time become **one list**, rows with the same columns **one table**.
+- In **Smart** mode, copied text that looks like it lost its structure on the way — a list copied
+  from a web page arrives with no bullets — is labelled by Apple's on-device model. It may only say
+  what each run of lines is, in the original order; anything else is refused. When it was used,
+  the result is shown first, with the stack **as copied** one click away.
+
+Every captured item keeps both its versions: right-click it in the stack for **Use Text As Read** /
+**Use Formatted Text**.
+
+## AI edit mode and Profile
+
+**Profile** (menu bar ▸ **Profile…**) holds details about you, in groups: *Me ▸ Name*,
+*Me ▸ PRN*, *GCloud server ▸ Host*, *silver_algo project ▸ Server path (on GCloud server)*. Add them
+with **+**, write them in your own words under **Tell ClipStack about you** (the on-device model
+sorts them into details, you tick the ones to keep, and every value is checked to be copied from
+your words), or edit everything as JSON. Import and export are in the toolbar.
+
+Details are stored only on this Mac (`~/Library/Application Support/ClipStack/Profile.json`), never
+in iCloud. Details marked 🔒 (a PRN, a token) keep their value in the **Keychain** instead, and
+are hidden in the list until you click the eye.
+
+**Edit mode.** Press <kbd>⌥Space</kbd>, paste (or type) the text with blanks in it, then press
+<kbd>⌘↩</kbd>. What is in the field is what gets edited; a short search that has a saved text
+highlighted edits that saved text instead; and with the field empty, ⌘↩ edits whatever is on the
+clipboard. The field then takes instructions:
+
+| Key | Does |
+|---|---|
+| <kbd>↩</kbd> | Send the instruction: "fill in my details", "add my PRN at the end", "make it to Prof. Rao instead" |
+| <kbd>⌥↩</kbd> | **Quick fill**: placeholders that plainly name one detail (`[Your Name]`, `<YOUR_IP>`), no AI |
+| <kbd>⌘Z</kbd> | Undo the last step |
+| <kbd>⌘↩</kbd> | Paste the result into the app you came from |
+| <kbd>Esc</kbd> | Done: the latest result is already on the clipboard |
+
+The card shows what the last step changed: additions in green, removals struck through in red,
+placeholders still to fill in orange. **Changes / Clean** switches between that and the plain result.
+
+How it keeps your text intact:
+
+- The model never rewrites your text. It may only propose edits — "replace this exact piece with
+  that" — and ClipStack applies an edit only where that piece appears exactly (once, or anywhere
+  for a placeholder like `<USER>`). Everything else is copied through unchanged, which the
+  highlighting shows.
+- **The model never sees your details' values.** It is shown their names ("{{fact:2}} — GCloud
+  server ▸ Host") and writes those tokens; ClipStack puts the real values in afterwards. Secrets
+  never pass through the model, and an IP address can't come back with a digit wrong.
+- If you ask for something your profile doesn't have, it can't make it up: it leaves a purple
+  ⟦PRN⟧ gap and asks you. Type the value and press <kbd>↩</kbd> to fill it and save it to your
+  profile, or <kbd>⇧↩</kbd> to fill it just this once.
+
+For example, with *GCloud server ▸ User*, *GCloud server ▸ Host* and *silver_algo project ▸ Server
+path* in your profile, `<USER>@<YOUR_IP>:path/to/destination` becomes
+`google-cloud@34.131.129.112:/home/google-cloud/silver_algo/` — with Quick fill alone, or by asking.
+
+AI edits use Apple's on-device model (macOS 26, Apple Intelligence on), so nothing leaves your Mac.
+On a Mac without it, Profile and Quick fill still work.
+
+## Websites
+
+Menu bar ▸ **Add Websites…** (later **Manage Websites…**). Each website has a name, an address
+(`github.com` is fine — `https://` is added) and where it opens. Open one from the menu bar, or
+type in the <kbd>⌥Space</kbd> panel: websites are ranked alongside saved texts (by name, host,
+address, or the profile they open in — typing `work` finds every site that opens in Work), and
+<kbd>↩</kbd> opens the highlighted one.
+
+| Open in | How ClipStack opens it |
+|---|---|
+| Default browser | Whatever the system default is *at the time*, so changing it later is followed |
+| A browser, no profile | That browser, in its usual window |
+| Chrome, Brave, Edge, Vivaldi, Chromium profile | `--profile-directory=…` — profiles are read from the browser's `Local State` |
+| Firefox profile | `-P <name>` — profiles are read from `profiles.ini` |
+| Safari profile | A new tab in that profile's open window, or File ▸ **New *Profile* Window** if none is open |
+
+Safari (17+) has no command-line flag or URL scheme for profiles, so ClipStack does what you would
+do by hand. If a window of that profile is open (recognised by the profile name Safari shows in
+its toolbar), it brings that window forward and opens the address in a new tab. Otherwise it
+presses Safari's own **New *Work* Window** menu item through Accessibility and loads the address
+into the new window's tab. The address goes in with AppleScript. That needs Accessibility (which ClipStack
+already asks for) and, the first time, macOS asks whether ClipStack may control Safari. To pick
+the profile, type its name as Safari's File menu shows it, or open Safari and choose it from
+**Detected**.
 
 **Permissions** — Accessibility status, with a direct link to System Settings.
 
@@ -219,9 +381,12 @@ ClipStack/
 ├── AppDelegate.swift             composition root: wires hotkeys, owns the windows
 ├── AppEnvironment.swift          the object graph handed to every view
 ├── Info.plist                    LSUIElement + permission usage descriptions
-├── ClipStack.entitlements        iCloud KVS — see "Enabling the capability"
+├── HardenedRuntime.entitlements  what the app is signed with: Apple Events (for Safari profiles)
+├── ClipStack.entitlements        iCloud KVS — not wired up, as it needs an iCloud App ID
 ├── Models/
 │   ├── Snippet.swift             the value type the whole app works with
+│   ├── Website.swift             a saved website and the browser/profile it opens in
+│   ├── BrowserProfiles.swift     which browsers have profiles, and parsing their lists
 │   ├── KeyCombo.swift            codable key + modifiers, Carbon translation
 │   └── Preferences.swift         every setting, backed by UserDefaults
 ├── Core/
@@ -236,7 +401,13 @@ ClipStack/
 │   ├── SwiftDataSnippetPersistence.swift  SwiftData backend (macOS 14+)
 │   ├── LegacyDefaultStoreReader.swift   read-only import from the old shared store
 │   ├── CloudSyncCoordinator.swift       iCloud key-value sync
-│   └── SnippetSyncMerge.swift           pure reconciliation rules
+│   ├── SnippetSyncMerge.swift           pure reconciliation rules
+│   ├── WebsiteStore.swift               saved websites, in UserDefaults
+│   ├── TextLayout.swift                 rebuilding layout from recognised lines (pure, tested)
+│   ├── BulletProbe.swift                spotting bullet marks in pixels (pure, tested)
+│   ├── ScreenTextRecognizer.swift       Vision text recognition
+│   ├── ScreenSnapshotter.swift          freezing the screens (ScreenCaptureKit)
+│   └── BrowserLauncher.swift            browser discovery, and opening in a profile
 └── UI/
     ├── StatusItemController.swift  menu bar icon, runtime-drawn numeric badge
     ├── MenuBarView.swift           the dropdown
@@ -245,6 +416,9 @@ ClipStack/
     ├── GlassSurface.swift          Liquid Glass surface, with a pre-26 fallback
     ├── SavedTextsWindow.swift      management window + shared window controller
     ├── SnippetEditorView.swift     add/edit form
+    ├── WebsitesWindow.swift        website list and editor (browser + profile pickers)
+    ├── RegionSelectionOverlay.swift the drag-a-box overlay for screen capture
+    ├── TextCaptureController.swift capture, start to finish, and its preview
     ├── SettingsView.swift          settings panes
     ├── ShortcutRecorderView.swift  click-to-record shortcut control
     └── HUDController.swift         the transient confirmation under the icon

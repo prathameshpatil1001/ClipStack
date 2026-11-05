@@ -178,6 +178,7 @@ final class SwiftDataSnippetPersistence: SnippetPersistence {
 
 // MARK: - Backend selection
 
+@MainActor
 enum SnippetPersistenceFactory {
 
     /// SwiftData on macOS 14+, the JSON file on macOS 13.

@@ -15,11 +15,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var environment: AppEnvironment!
     private var statusItemController: StatusItemController!
     private var recallPanelController: SpotlightSearchPanelController!
+    private var textCapture: TextCaptureController!
+    private var stackFormatter: StackFormatController!
     private let hud = HUDController()
 
     // Created lazily and reused; closing a window keeps the controller alive.
     private var savedTextsWindow: SwiftUIWindowController?
     private var settingsWindow: SwiftUIWindowController?
+    private var websitesWindow: SwiftUIWindowController?
+    private var profileWindow: SwiftUIWindowController?
 
     // MARK: - Lifecycle
 
@@ -32,8 +36,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         environment = AppEnvironment()
         recallPanelController = SpotlightSearchPanelController(
             store: environment.snippets,
+            websites: environment.websites,
+            profile: environment.profile,
             clipboard: environment.clipboard,
             preferences: environment.preferences
+        )
+
+        textCapture = TextCaptureController(
+            preferences: environment.preferences,
+            stack: environment.stack,
+            clipboard: environment.clipboard
+        )
+
+        stackFormatter = StackFormatController(
+            preferences: environment.preferences,
+            stack: environment.stack
         )
 
         wireHUD()
@@ -65,8 +82,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         environment.stack.onHUD = { [weak self] message, symbol in
             self?.hud.show(message, symbol: symbol)
         }
-        recallPanelController.onHUD = { [weak self] message, symbol in
+        stackFormatter.onHUD = { [weak self] message, symbol in
             self?.hud.show(message, symbol: symbol)
+        }
+        textCapture.onHUD = { [weak self] message, symbol in
+            self?.hud.show(message, symbol: symbol, duration: message.count > 30 ? 4 : 1.6)
+        }
+        recallPanelController.onHUD = { [weak self] message, symbol in
+            // "Copied ✓" is read at a glance; an explanation needs time.
+            self?.hud.show(message, symbol: symbol, duration: message.count > 30 ? 5 : 1.4)
         }
     }
 
@@ -75,6 +99,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             openSavedTexts: { [weak self] in self?.showSavedTexts() },
             openSettings: { [weak self] in self?.showSettings() },
             openRecallPanel: { [weak self] in self?.showRecallPanel() },
+            openWebsites: { [weak self] in self?.showWebsites() },
+            openProfile: { [weak self] in self?.showProfile() },
+            captureText: { [weak self] in
+                self?.statusItemController?.closePopover()
+                // Let the dropdown finish closing before the screen is frozen.
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
+                    self?.textCapture.begin()
+                }
+            },
+            formatStack: { [weak self] in
+                self?.statusItemController?.closePopover()
+                self?.stackFormatter.formatStack()
+            },
+            openWebsite: { [weak self] website in
+                self?.statusItemController?.closePopover()
+                self?.openWebsite(website)
+            },
             quit: { NSApp.terminate(nil) }
         )
         statusItemController = StatusItemController(environment: environment, actions: actions)
@@ -93,6 +134,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         hotKeys.setHandler(for: .recall) { [weak self] in
             self?.recallPanelController.toggle()
+        }
+
+        hotKeys.setHandler(for: .formatStack) { [weak self] in
+            self?.stackFormatter.formatStack()
+        }
+
+        hotKeys.setHandler(for: .captureText) { [weak self] in
+            self?.textCapture.begin()
         }
 
         hotKeys.setHandler(for: .toggleStackMode) { [weak self] in
@@ -161,7 +210,58 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         savedTextsWindow?.present()
     }
 
-    private func showSettings() {
+    private func showWebsites() {
+        statusItemController?.closePopover()
+
+        if websitesWindow == nil {
+            let environment = self.environment!
+            websitesWindow = SwiftUIWindowController(
+                title: "Websites",
+                size: NSSize(width: 640, height: 420),
+                minSize: NSSize(width: 560, height: 360)
+            ) {
+                WebsitesView(store: environment.websites) { [weak self] website in
+                    self?.openWebsite(website)
+                }
+                .environmentObject(environment)
+            }
+        }
+        websitesWindow?.present()
+    }
+
+    private func showProfile() {
+        statusItemController?.closePopover()
+
+        if profileWindow == nil {
+            let environment = self.environment!
+            profileWindow = SwiftUIWindowController(
+                title: "Profile",
+                size: NSSize(width: 680, height: 560),
+                minSize: NSSize(width: 600, height: 460)
+            ) {
+                ProfileView(store: environment.profile)
+                    .environmentObject(environment)
+            }
+        }
+        profileWindow?.present()
+    }
+
+    /// Opens a saved website in its browser and profile, saying so if it can't.
+    private func openWebsite(_ website: Website) {
+        Task { @MainActor in
+            do {
+                if let notice = try await BrowserLauncher.open(website) {
+                    hud.show(notice, symbol: "info.circle.fill", duration: 5)
+                }
+            } catch {
+                let message = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
+                hud.show(message, symbol: "exclamationmark.triangle.fill", duration: 4)
+            }
+        }
+    }
+
+    /// Internal rather than private: the app menu's Settings… item calls it.
+    func showSettings() {
         statusItemController?.closePopover()
 
         if settingsWindow == nil {

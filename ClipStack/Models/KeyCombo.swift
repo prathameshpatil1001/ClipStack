@@ -56,6 +56,10 @@ struct KeyCombo: Codable, Hashable {
     static let defaultResetStack = KeyCombo(keyCode: UInt32(kVK_ANSI_X), modifiers: [.option, .command])
     static let defaultRecall     = KeyCombo(keyCode: UInt32(kVK_Space),  modifiers: [.option])
     static let defaultToggleStackMode = KeyCombo(keyCode: UInt32(kVK_ANSI_S), modifiers: [.option, .command])
+    static let defaultCaptureText = KeyCombo(keyCode: UInt32(kVK_ANSI_T), modifiers: [.option, .command])
+    /// ⌃⌥⌘V: ⇧⌥⌘V ("Paste and Match Style") and ⌥⌘F (Find and Replace) are
+    /// taken in too many apps for a global shortcut.
+    static let defaultFormatStack = KeyCombo(keyCode: UInt32(kVK_ANSI_V), modifiers: [.control, .option, .command])
 
     // MARK: - Key naming
 

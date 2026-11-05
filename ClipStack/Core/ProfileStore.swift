@@ -29,7 +29,9 @@ final class ProfileStore: ObservableObject {
     private let fileURL: URL
     private let secrets: SecretStore
 
-    static var defaultFileURL: URL {
+    /// Nonisolated because it is a default argument, which Swift evaluates
+    /// outside the main actor. It only asks FileManager for a path.
+    nonisolated static var defaultFileURL: URL {
         let support = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
             ?? FileManager.default.temporaryDirectory
         return support

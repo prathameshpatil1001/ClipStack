@@ -27,6 +27,13 @@ enum ClipboardChecks {
         let pasteboard = NSPasteboard(name: .init("com.prathamesh.ClipStack.tests"))
         let clipboard = ClipboardManager(pasteboard: pasteboard)
 
+        /// A copy made by another app: ClipStack's own `write` is deliberately
+        /// not treated as one.
+        func copy(_ text: String) {
+            pasteboard.clearContents()
+            pasteboard.setString(text, forType: .string)
+        }
+
         // The controller's watermark: everything is expressed relative to this.
         var consumed = clipboard.changeCount
         let watermark: @MainActor () -> Int = { consumed }
@@ -34,7 +41,7 @@ enum ClipboardChecks {
         // ORDERING 1 — event tap: keystroke seen first, copy lands afterwards.
         Task { @MainActor in
             try? await Task.sleep(for: .milliseconds(80))
-            _ = clipboard.write("copied after the keystroke")
+            copy("copied after the keystroke")
         }
         var captured = await clipboard.awaitCopy(consumedThrough: watermark)
         runner.check("tap ordering: copy arrives after the keystroke",
@@ -43,7 +50,7 @@ enum ClipboardChecks {
 
         // ORDERING 2 — global monitor: the copy already landed before we look.
         // This is the case the old baseline logic dropped entirely.
-        _ = clipboard.write("copied before we looked")
+        copy("copied before we looked")
         captured = await clipboard.awaitCopy(consumedThrough: watermark)
         runner.check("monitor ordering: copy already landed",
                      captured?.text ?? "nil", equals: "copied before we looked")
@@ -58,7 +65,7 @@ enum ClipboardChecks {
 
         // Both routes see the same ⌘C: the first consumes it, the second must
         // find nothing rather than stacking a duplicate.
-        _ = clipboard.write("only once")
+        copy("only once")
         let first = await clipboard.awaitCopy(consumedThrough: watermark)
         runner.check("first route captures", first?.text ?? "nil", equals: "only once")
         consumed = first?.changeCount ?? consumed
@@ -69,10 +76,17 @@ enum ClipboardChecks {
         // though the string is identical.
         Task { @MainActor in
             try? await Task.sleep(for: .milliseconds(40))
-            _ = clipboard.write("only once")
+            copy("only once")
         }
         captured = await clipboard.awaitCopy(consumedThrough: watermark)
         runner.check("re-copying identical text registers", captured?.text ?? "nil", equals: "only once")
+
+        // ClipStack's own write (a recalled snippet, an AI edit step) followed by
+        // a ⌘C that copies nothing must not stack ClipStack's text.
+        consumed = clipboard.changeCount
+        _ = clipboard.write("ClipStack put this here")
+        let own = await clipboard.awaitCopy(consumedThrough: watermark, timeout: .milliseconds(120))
+        runner.check("⌘C after ClipStack's own write stacks nothing", own == nil, "got \(own?.text ?? "nil")")
 
         // ── The clipboard watcher: copies that never pressed ⌘C ──────────────
         // Another app (Shottr, Edit ▸ Copy) writing text is taken.

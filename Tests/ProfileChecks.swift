@@ -72,6 +72,16 @@ enum ProfileChecks {
             runner.check("JSON editor accepts valid JSON", false, "\(error)")
         }
 
+        // A file that lists the PRN without saying it's secret must not move
+        // it out of the Keychain.
+        do {
+            try store.importJSON(#"{ "facts": [ { "group": "Me", "label": "PRN", "value": "2021001" } ] }"#, replacingAll: false)
+            runner.check("importing without \"secret\" keeps a secret secret",
+                         store.facts.first { $0.label == "PRN" }?.isSecret == true && !fileText().contains("2021001"))
+        } catch {
+            runner.check("import accepts valid JSON", false, "\(error)")
+        }
+
         var threw = false
         do { try store.importJSON("not json", replacingAll: true) } catch { threw = true }
         runner.check("invalid JSON is refused", threw)

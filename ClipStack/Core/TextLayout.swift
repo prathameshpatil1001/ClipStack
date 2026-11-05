@@ -254,6 +254,7 @@ enum TextLayoutEngine {
     static func joiningColumnMarkers(_ row: [OCRLine], lineHeight h: Double) -> [OCRLine] {
         guard row.count >= 2,
               ListMarker.bareKind(row[0].text) != nil,
+              ListMarker.bareKind(row[1].text) == nil,
               row[1].minX - row[0].maxX < 12 * h
         else { return row }
 

@@ -881,15 +881,15 @@ struct AIEditCard: View {
     var body: some View {
         VStack(spacing: 0) {
             ScrollView {
-                Text(attributedText)
-                    .font(session.looksLikeCode
-                          ? .system(size: 13, design: .monospaced)
-                          : .system(size: 14))
-                    .lineSpacing(3)
-                    .textSelection(.enabled)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(.horizontal, 22)
-                    .padding(.vertical, 16)
+                // Equatable, so typing an instruction (which republishes the
+                // session) doesn't mark the whole text up again.
+                MarkedEditText(
+                    text: session.text,
+                    segments: session.segments,
+                    showsChanges: session.showsChanges && session.hasChanges,
+                    looksLikeCode: session.looksLikeCode
+                )
+                .equatable()
             }
 
             Divider().opacity(0.5)
@@ -954,19 +954,35 @@ struct AIEditCard: View {
         if case .problem = session.status { return AnyShapeStyle(.orange) }
         return AnyShapeStyle(.secondary)
     }
+}
 
-    // MARK: Marking up the text
+/// The text being edited, marked up: added text in green, removed text struck
+/// through in red, placeholders still to fill in orange, details ClipStack is
+/// asking for in purple.
+private struct MarkedEditText: View, Equatable {
+    let text: String
+    let segments: [DiffSegment]
+    let showsChanges: Bool
+    let looksLikeCode: Bool
+
+    var body: some View {
+        Text(attributedText)
+            .font(looksLikeCode ? .system(size: 13, design: .monospaced) : .system(size: 14))
+            .lineSpacing(3)
+            .textSelection(.enabled)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.horizontal, 22)
+            .padding(.vertical, 16)
+    }
 
     private typealias Background = AttributeScopes.SwiftUIAttributes.BackgroundColorAttribute
     private typealias Foreground = AttributeScopes.SwiftUIAttributes.ForegroundColorAttribute
     private typealias Strikethrough = AttributeScopes.SwiftUIAttributes.StrikethroughStyleAttribute
 
     private var attributedText: AttributedString {
-        guard session.showsChanges, session.hasChanges else {
-            return markingPlaceholders(session.text)
-        }
+        guard showsChanges else { return markingPlaceholders(text) }
         var result = AttributedString()
-        for segment in session.segments {
+        for segment in segments {
             switch segment {
             case .same(let part):
                 result += markingPlaceholders(part)

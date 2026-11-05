@@ -235,6 +235,12 @@ enum TextLayoutChecks {
         runner.check("one sentence starting “A ” is still a sentence",
                      LayoutRenderer.text(TextLayoutEngine.layout(sentence).blocks, style: .plain),
                      equals: "A man walked in and sat down by the window.")
+        let letterHeader = [
+            line("A", x: 0, y: 0, w: 12),
+            line("B", x: 200, y: 0, w: 12),
+        ]
+        runner.check("a row of lone letters is not an option",
+                     TextLayoutEngine.rows(letterHeader).first?.count == 2)
         runner.check("bare markers", ListMarker.bareKind("10") == .number && ListMarker.bareKind("B") == .letter
                      && ListMarker.bareKind("(c)") == .letter && ListMarker.bareKind("Research") == nil)
 

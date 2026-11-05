@@ -46,20 +46,27 @@ final class ClipboardManager {
     /// text editors get the text.
     @discardableResult
     func write(_ string: String, html: String) -> Bool {
-        pasteboard.clearContents()
-        var written = pasteboard.setString(string, forType: .string)
-        written = pasteboard.setString(html, forType: .html) && written
-        if let attributed = try? NSAttributedString(
+        // Converted before the pasteboard is touched: HTML import spins the
+        // run loop, and the Stack Mode watcher must never see a half-written
+        // clipboard it doesn't yet know is ClipStack's own.
+        let rtf: Data? = (try? NSAttributedString(
             data: Data(html.utf8),
             options: [
                 .documentType: NSAttributedString.DocumentType.html,
                 .characterEncoding: String.Encoding.utf8.rawValue,
             ],
             documentAttributes: nil
-        ), let rtf = try? attributed.data(
-            from: NSRange(location: 0, length: attributed.length),
-            documentAttributes: [.documentType: NSAttributedString.DocumentType.rtf]
-        ) {
+        )).flatMap { attributed in
+            try? attributed.data(
+                from: NSRange(location: 0, length: attributed.length),
+                documentAttributes: [.documentType: NSAttributedString.DocumentType.rtf]
+            )
+        }
+
+        pasteboard.clearContents()
+        var written = pasteboard.setString(string, forType: .string)
+        written = pasteboard.setString(html, forType: .html) && written
+        if let rtf {
             pasteboard.setData(rtf, forType: .rtf)
         }
         lastOwnWriteChangeCount = pasteboard.changeCount
@@ -145,7 +152,10 @@ final class ClipboardManager {
 
         while ContinuousClock.now < deadline {
             let current = pasteboard.changeCount
-            if current > consumedThrough() {
+            // ClipStack's own write (recall, an AI edit step, a capture) is
+            // not something the user copied: a ⌘C that copied nothing must
+            // not stack it.
+            if current > consumedThrough(), current != lastOwnWriteChangeCount {
                 // The counter can move a beat before the data is written, so an
                 // empty read here means "not ready yet", not "not text".
                 if let text = pasteboard.string(forType: .string), !text.isEmpty {

@@ -188,10 +188,14 @@ final class ProfileStore: ObservableObject {
         for entry in document.facts {
             let label = Self.clean(entry.label)
             guard !label.isEmpty else { continue }
-            let isSecret = entry.secret ?? false
             let probe = ProfileFact(group: entry.group, label: label, value: "")
+            let existing = facts.first(where: { $0.identityKey == probe.identityKey })
+            // Not saying whether it's secret leaves it as it is: an entry that
+            // simply omits "secret" must not move a Keychain value into the
+            // plain profile file.
+            let isSecret = entry.secret ?? existing?.isSecret ?? false
 
-            if let existing = facts.first(where: { $0.identityKey == probe.identityKey }) {
+            if let existing {
                 let updated = update(existing, group: entry.group, label: label, value: entry.value, isSecret: isSecret)
                 keep.insert(updated.id)
             } else {

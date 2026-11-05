@@ -57,13 +57,17 @@ enum PlaceholderDetector {
         #"⟦[^⟧\n]{1,60}⟧"#,
     ]
 
+    /// Compiled once: this runs on every edit and every redraw of the card.
+    private static let expressions: [NSRegularExpression] = patterns.compactMap {
+        try? NSRegularExpression(pattern: $0)
+    }
+
     /// Every placeholder occurrence, in order, without overlaps.
     static func ranges(in text: String) -> [Range<String.Index>] {
         let whole = NSRange(text.startIndex..., in: text)
         var found: [Range<String.Index>] = []
 
-        for pattern in patterns {
-            guard let expression = try? NSRegularExpression(pattern: pattern) else { continue }
+        for expression in expressions {
             for match in expression.matches(in: text, range: whole) {
                 if let range = Range(match.range, in: text), !range.isEmpty {
                     found.append(range)

@@ -113,31 +113,45 @@ nonisolated enum ScreenTextRecognizer {
         let h = MarkerRecovery.lineHeight(lines)
 
         // Look at each slot: a mark there is a marker; none, a wrapped line.
-        var inked = Set<Int>()
-        var read: [Int: String] = [:]
+        var inked: [Int: (values: [UInt8], width: Int, height: Int)] = [:]
         for (index, slot) in slots.enumerated() {
             let rect = CGRect(x: slot.minX, y: slot.minY, width: slot.width, height: slot.height).integral
             guard let pixels = grayPixels(of: image, in: rect),
                   MarkerRecovery.hasInk(gray: pixels.values, width: pixels.width, height: pixels.height)
             else { continue }
-            inked.insert(index)
+            inked[index] = pixels
+        }
+        guard !inked.isEmpty else { return lines }
+
+        func resolve(reading read: [Int: String]) -> [Int: String] {
+            var recovered: [Int: String] = [:]
+            for (columnIndex, column) in columns.enumerated() {
+                var rows: [MarkerRecovery.ColumnRow] = lines
+                    .filter { MarkerRecovery.isBareMarker($0.text) && $0.minX >= column.minX - h && $0.maxX <= column.maxX + h }
+                    .map { MarkerRecovery.ColumnRow(y: $0.midY, known: $0.text, slot: nil) }
+                for (index, slot) in slots.enumerated() where slot.column == columnIndex && inked[index] != nil {
+                    rows.append(MarkerRecovery.ColumnRow(y: slot.minY + slot.height / 2, known: read[index], slot: index))
+                }
+                for (slot, text) in MarkerRecovery.resolve(rows, column: column, lineHeight: h) {
+                    recovered[slot] = text
+                }
+            }
+            return recovered
+        }
+
+        // The sequence of the markers that were read settles most slots. Only
+        // the rest are read again — two recognition passes each, so not cheap.
+        var recovered = resolve(reading: [:])
+        var read: [Int: String] = [:]
+        for (index, pixels) in inked where recovered[index] == nil {
+            let slot = slots[index]
+            let rect = CGRect(x: slot.minX, y: slot.minY, width: slot.width, height: slot.height).integral
             if let text = readMarker(in: image, rect: rect, pixels: pixels), MarkerRecovery.isBareMarker(text) {
                 read[index] = text
             }
         }
-        guard !inked.isEmpty else { return lines }
-
-        var recovered: [Int: String] = [:]
-        for (columnIndex, column) in columns.enumerated() {
-            var rows: [MarkerRecovery.ColumnRow] = lines
-                .filter { MarkerRecovery.isBareMarker($0.text) && $0.minX >= column.minX - h && $0.maxX <= column.maxX + h }
-                .map { MarkerRecovery.ColumnRow(y: $0.midY, known: $0.text, slot: nil) }
-            for (index, slot) in slots.enumerated() where slot.column == columnIndex && inked.contains(index) {
-                rows.append(MarkerRecovery.ColumnRow(y: slot.minY + slot.height / 2, known: read[index], slot: index))
-            }
-            for (slot, text) in MarkerRecovery.resolve(rows, column: column, lineHeight: h) {
-                recovered[slot] = text
-            }
+        if !read.isEmpty {
+            recovered = resolve(reading: read)
         }
 
         var result = lines

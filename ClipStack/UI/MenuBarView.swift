@@ -45,6 +45,11 @@ struct MenuBarView: View {
                 systemImage: "text.book.closed",
                 action: actions.openSavedTexts
             )
+            MenuRow(
+                title: "Profile\u{2026}",
+                systemImage: "person.text.rectangle",
+                action: actions.openProfile
+            )
 
             Divider().padding(.vertical, 4)
 

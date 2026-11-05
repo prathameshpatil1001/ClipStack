@@ -28,6 +28,7 @@ final class StatusItemController {
         var openSettings: () -> Void
         var openRecallPanel: () -> Void
         var openWebsites: () -> Void
+        var openProfile: () -> Void
         var openWebsite: (Website) -> Void
         var quit: () -> Void
     }

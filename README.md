@@ -1,6 +1,6 @@
 # ClipStack
 
-A macOS menu bar utility with three features:
+A macOS menu bar utility with four features:
 
 1. **Stack Mode** — while it is on, everything you copy appends to an ordered stack instead of
    overwriting the clipboard: <kbd>⌘C</kbd>, and also copies that never press it (Shottr and other
@@ -11,9 +11,13 @@ A macOS menu bar utility with three features:
 3. **Websites** — sites you open all the time, one click from the menu bar or a few keystrokes in
    <kbd>⌥Space</kbd>, each in the browser you pick for it (or the system default) and, for Safari,
    Chrome, Brave, Edge, Vivaldi and Firefox, in a specific **profile**.
+4. **AI edit mode and Profile** — copy an AI-written email, form or command with placeholders,
+   press <kbd>⌥Space</kbd> then <kbd>⌘↩</kbd>, and say "fill in my details". ClipStack fills them
+   from your **Profile** (name, PRN, servers, project paths…) using Apple's on-device model, and
+   changes nothing you didn't ask it to. Everything stays on your Mac.
 
 No Dock icon, no app switcher entry — it lives in the menu bar (`LSUIElement`). The one exception:
-while a ClipStack window (Saved Texts, Websites, Settings) is open, it shows a Dock icon and a
+while a ClipStack window (Saved Texts, Websites, Profile, Settings) is open, it shows a Dock icon and a
 normal menu bar, and goes back to menu-bar-only when you close it.
 
 ---
@@ -102,6 +106,8 @@ Settings ▸ Permissions shows both switches and which capture route is live.
 | Auto-pasting (Paste Stack, and ↩ in the recall panel) | **Yes** — Accessibility |
 | Websites in the default browser, or in a Chrome/Brave/Edge/Firefox profile | No |
 | Websites in a **Safari** profile | **Yes** — Accessibility, plus Automation for Safari (macOS asks once) |
+| Profile, and Quick fill (<kbd>⌥↩</kbd>) in edit mode | No |
+| AI edits (<kbd>⌘↩</kbd>) and "Tell ClipStack about you" | No permission — but macOS 26 with Apple Intelligence on |
 
 If permission is missing, Stack Mode refuses to switch on and says why;
 everything else carries on. Grant it later and ClipStack arms itself within
@@ -202,6 +208,52 @@ Clearing the Toggle Stack Mode shortcut sticks — it will not reappear on the n
 - iCloud sync toggle and live status
 
 **Shortcuts** — rebind anything; conflicts with macOS or another app are reported inline.
+
+## AI edit mode and Profile
+
+**Profile** (menu bar ▸ **Profile…**) holds details about you, in groups: *Me ▸ Name*,
+*Me ▸ PRN*, *GCloud server ▸ Host*, *silver_algo project ▸ Server path (on GCloud server)*. Add them
+with **+**, write them in your own words under **Tell ClipStack about you** (the on-device model
+sorts them into details, you tick the ones to keep, and every value is checked to be copied from
+your words), or edit everything as JSON. Import and export are in the toolbar.
+
+Details are stored only on this Mac (`~/Library/Application Support/ClipStack/Profile.json`), never
+in iCloud. Details marked 🔒 (a PRN, a token) keep their value in the **Keychain** instead, and
+are hidden in the list until you click the eye.
+
+**Edit mode.** Copy something with blanks in it, press <kbd>⌥Space</kbd>, then <kbd>⌘↩</kbd> (or
+highlight a saved text first to edit that). The field now takes instructions:
+
+| Key | Does |
+|---|---|
+| <kbd>↩</kbd> | Send the instruction: "fill in my details", "add my PRN at the end", "make it to Prof. Rao instead" |
+| <kbd>⌥↩</kbd> | **Quick fill**: placeholders that plainly name one detail (`[Your Name]`, `<YOUR_IP>`), no AI |
+| <kbd>⌘Z</kbd> | Undo the last step |
+| <kbd>⌘↩</kbd> | Paste the result into the app you came from |
+| <kbd>Esc</kbd> | Done: the latest result is already on the clipboard |
+
+The card shows what the last step changed: additions in green, removals struck through in red,
+placeholders still to fill in orange. **Changes / Clean** switches between that and the plain result.
+
+How it keeps your text intact:
+
+- The model never rewrites your text. It may only propose edits — "replace this exact piece with
+  that" — and ClipStack applies an edit only where that piece appears exactly (once, or anywhere
+  for a placeholder like `<USER>`). Everything else is copied through unchanged, which the
+  highlighting shows.
+- **The model never sees your details' values.** It is shown their names ("{{fact:2}} — GCloud
+  server ▸ Host") and writes those tokens; ClipStack puts the real values in afterwards. Secrets
+  never pass through the model, and an IP address can't come back with a digit wrong.
+- If you ask for something your profile doesn't have, it can't make it up: it leaves a purple
+  ⟦PRN⟧ gap and asks you. Type the value and press <kbd>↩</kbd> to fill it and save it to your
+  profile, or <kbd>⇧↩</kbd> to fill it just this once.
+
+For example, with *GCloud server ▸ User*, *GCloud server ▸ Host* and *silver_algo project ▸ Server
+path* in your profile, `<USER>@<YOUR_IP>:path/to/destination` becomes
+`google-cloud@34.131.129.112:/home/google-cloud/silver_algo/` — with Quick fill alone, or by asking.
+
+AI edits use Apple's on-device model (macOS 26, Apple Intelligence on), so nothing leaves your Mac.
+On a Mac without it, Profile and Quick fill still work.
 
 ## Websites
 

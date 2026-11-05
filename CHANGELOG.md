@@ -8,6 +8,24 @@ and this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 ## [Unreleased]
 
 ### Added
+- **AI edit mode in ⌥Space (⌘↩).** Edit the clipboard, or a highlighted saved
+  text, one instruction at a time: "fill in my details", "add my PRN at the
+  end". Each step is applied as exact edits, never a rewrite. Anything that
+  doesn't match the text exactly is refused, everything else is copied through
+  unchanged, and the card highlights what changed. Every result goes straight
+  onto the clipboard; ⌘Z steps back, ⌘↩ pastes into the previous app. Uses
+  Apple's on-device model (macOS 26, Apple Intelligence), so nothing leaves
+  the Mac.
+- **Quick fill (⌥↩)** fills placeholders such as `[Your Name]`, `<USER>`,
+  `<YOUR_IP>` or `path/to/destination` that plainly name one profile detail,
+  with no AI.
+- **Profile.** Details about you, in groups, used by edit mode and Quick fill.
+  Add them by hand, as JSON (editor, import, export), or by describing them in
+  your own words. The on-device model sorts what you wrote into details, keeps
+  only values copied from it, and you approve each one. Secrets (PRN, tokens)
+  are kept in the Keychain. The model is shown only the details' names, never
+  their values, and ClipStack substitutes the values itself. A detail the
+  profile lacks becomes a ⟦gap⟧ to fill, never a guess.
 - **Websites.** Save the sites you open all the time and open them from the menu
   bar, each in the browser you choose (or whatever the system default is) and,
   optionally, in a specific browser **profile**: Safari 17+ profiles, Chrome,

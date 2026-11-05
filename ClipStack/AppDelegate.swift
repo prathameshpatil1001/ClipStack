@@ -21,6 +21,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var savedTextsWindow: SwiftUIWindowController?
     private var settingsWindow: SwiftUIWindowController?
     private var websitesWindow: SwiftUIWindowController?
+    private var profileWindow: SwiftUIWindowController?
 
     // MARK: - Lifecycle
 
@@ -34,6 +35,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         recallPanelController = SpotlightSearchPanelController(
             store: environment.snippets,
             websites: environment.websites,
+            profile: environment.profile,
             clipboard: environment.clipboard,
             preferences: environment.preferences
         )
@@ -79,6 +81,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             openSettings: { [weak self] in self?.showSettings() },
             openRecallPanel: { [weak self] in self?.showRecallPanel() },
             openWebsites: { [weak self] in self?.showWebsites() },
+            openProfile: { [weak self] in self?.showProfile() },
             openWebsite: { [weak self] website in
                 self?.statusItemController?.closePopover()
                 self?.openWebsite(website)
@@ -186,6 +189,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             }
         }
         websitesWindow?.present()
+    }
+
+    private func showProfile() {
+        statusItemController?.closePopover()
+
+        if profileWindow == nil {
+            let environment = self.environment!
+            profileWindow = SwiftUIWindowController(
+                title: "Profile",
+                size: NSSize(width: 680, height: 560),
+                minSize: NSSize(width: 600, height: 460)
+            ) {
+                ProfileView(store: environment.profile)
+                    .environmentObject(environment)
+            }
+        }
+        profileWindow?.present()
     }
 
     /// Opens a saved website in its browser and profile, saying so if it can't.

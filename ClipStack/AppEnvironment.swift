@@ -17,6 +17,7 @@ final class AppEnvironment: ObservableObject {
     let stack: StackModeController
     let snippets: SnippetStore
     let websites: WebsiteStore
+    let profile: ProfileStore
     let hotKeys: HotKeyManager
     let cloudSync: CloudSyncCoordinator
 
@@ -43,6 +44,7 @@ final class AppEnvironment: ObservableObject {
             cloudSync: cloudSync
         )
         self.websites = WebsiteStore()
+        self.profile = ProfileStore(secrets: KeychainSecretStore())
         self.hotKeys = HotKeyManager()
         self.stack = StackModeController(
             preferences: preferences,
@@ -63,6 +65,7 @@ final class AppEnvironment: ObservableObject {
             self.stack.objectWillChange,
             self.snippets.objectWillChange,
             self.websites.objectWillChange,
+            self.profile.objectWillChange,
             cloudSync.objectWillChange,
         ] {
             nested

@@ -6,6 +6,10 @@
 //  list of saved texts and saved websites beneath it. ↩ on a text pastes it;
 //  ↩ on a website opens it in its browser and profile. ⌘1…⌘9 pick a row directly.
 //
+//  ⌘↩ switches to AI edit mode: the clipboard (or the highlighted saved text)
+//  becomes the text being edited, and the field takes instructions — "fill in
+//  my details", "add my PRN at the end". See AIEditSession.
+//
 //  It is modelled on macOS Spotlight, including the parts that are easy to miss:
 //
 //   • It opens as a bare search field. `FuzzySearchEngine` answers an empty
@@ -126,8 +130,13 @@ final class RecallViewModel: ObservableObject {
     /// Drives the open and close animation of the panel's content.
     @Published var isRevealed = false
 
+    /// Set while ⌘↩ edit mode is on; nil in ordinary search.
+    @Published private(set) var editSession: AIEditSession?
+
     private let store: SnippetStore
     private let websites: WebsiteStore
+    private let profile: ProfileStore
+    private let clipboard: ClipboardManager
 
     /// Where the pointer was the last time the selection moved for any reason
     /// other than the mouse: an arrow key, or the results changing.
@@ -141,9 +150,24 @@ final class RecallViewModel: ObservableObject {
     /// now only counts once the pointer has really moved since then.
     private var pointerLocationAtLastKeyboardChange: NSPoint?
 
-    init(store: SnippetStore, websites: WebsiteStore) {
+    init(store: SnippetStore, websites: WebsiteStore, profile: ProfileStore, clipboard: ClipboardManager) {
         self.store = store
         self.websites = websites
+        self.profile = profile
+        self.clipboard = clipboard
+    }
+
+    /// Starts editing `text` with AI. The search field becomes the
+    /// instruction field.
+    func beginEditing(_ text: String, title: String) {
+        editSession?.cancel()
+        query = ""
+        editSession = AIEditSession(text: text, sourceTitle: title, profile: profile, clipboard: clipboard)
+    }
+
+    func endEditing() {
+        editSession?.cancel()
+        editSession = nil
     }
 
     var selectedItem: RecallItem? {
@@ -169,6 +193,7 @@ final class RecallViewModel: ObservableObject {
     /// Reloads from the store and clears the field — called each time the panel
     /// opens so it never shows a stale query or a since-deleted snippet.
     func reset() {
+        endEditing()
         query = ""
         refreshResults()
     }
@@ -227,8 +252,14 @@ final class SpotlightSearchPanelController: NSObject, NSWindowDelegate {
     /// Shows the "Copied ✓" confirmation.
     var onHUD: ((String, String) -> Void)?
 
-    init(store: SnippetStore, websites: WebsiteStore, clipboard: ClipboardManager, preferences: Preferences) {
-        self.viewModel = RecallViewModel(store: store, websites: websites)
+    init(
+        store: SnippetStore,
+        websites: WebsiteStore,
+        profile: ProfileStore,
+        clipboard: ClipboardManager,
+        preferences: Preferences
+    ) {
+        self.viewModel = RecallViewModel(store: store, websites: websites, profile: profile, clipboard: clipboard)
         self.clipboard = clipboard
         self.preferences = preferences
         super.init()
@@ -271,6 +302,9 @@ final class SpotlightSearchPanelController: NSObject, NSWindowDelegate {
         removeKeyMonitor()
         isPresented = false
         viewModel.isRevealed = false
+        // Whatever the last step produced is already on the clipboard; a step
+        // still running is abandoned.
+        viewModel.editSession?.cancel()
 
         if let panel {
             NSAnimationContext.runAnimationGroup({ context in
@@ -333,14 +367,20 @@ final class SpotlightSearchPanelController: NSObject, NSWindowDelegate {
     }
 
     private func paste(_ snippet: Snippet) {
-        clipboard.write(snippet.body)
         viewModel.markUsed(snippet)      // feeds the useCount / recency boosts
+        paste(text: snippet.body, autoPaste: preferences.recallAutoPaste)
+    }
+
+    /// Puts `text` on the clipboard, closes, and (if `autoPaste`) types ⌘V
+    /// into the app the user came from.
+    private func paste(text: String, autoPaste: Bool) {
+        clipboard.write(text)
 
         // Captured before closing, which clears it.
         let targetApp = previouslyActiveApp
         close(restoringFocus: true)
 
-        guard preferences.recallAutoPaste else {
+        guard autoPaste else {
             onHUD?("Copied ✓", "checkmark.circle.fill")
             return
         }
@@ -356,6 +396,49 @@ final class SpotlightSearchPanelController: NSObject, NSWindowDelegate {
                 // either way, so degrade to a manual paste rather than failing.
                 onHUD?("Copied ✓ — press ⌘V", "doc.on.clipboard")
             }
+        }
+    }
+
+    // MARK: AI edit mode
+
+    /// ⌘↩ — edit the highlighted saved text, or else whatever is on the clipboard.
+    private func beginEditing() {
+        if viewModel.hasQuery, let item = viewModel.selectedItem, case .snippet(let snippet) = item {
+            viewModel.beginEditing(snippet.body, title: snippet.displayTitle)
+        } else if let text = clipboard.readString(),
+                  !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            viewModel.beginEditing(text, title: "Clipboard")
+        } else {
+            onHUD?("Copy some text first, then ⌘↩ to edit it", "doc.on.clipboard")
+        }
+    }
+
+    /// Keys while editing. ↩ sends the instruction, ⌥↩ Quick fill, ⌘↩ pastes
+    /// the result into the app the user came from, ⌘Z steps back, Esc closes
+    /// (the result is already on the clipboard).
+    private func handleEditKey(_ event: NSEvent, modifiers: NSEvent.ModifierFlags, session: AIEditSession) -> NSEvent? {
+        switch Int(event.keyCode) {
+        case kVK_Return, kVK_ANSI_KeypadEnter:
+            if modifiers == .command {
+                paste(text: session.text, autoPaste: true)
+            } else if modifiers == .option {
+                session.quickFill()
+            } else if modifiers == .shift {
+                session.submit(remember: false)
+            } else if modifiers.isEmpty {
+                session.submit(remember: true)
+            } else {
+                return event
+            }
+            return nil
+        case kVK_Escape:
+            close(restoringFocus: true)
+            return nil
+        case kVK_ANSI_Z where modifiers == .command && session.instruction.isEmpty:
+            session.undo()
+            return nil
+        default:
+            return event
         }
     }
 
@@ -426,8 +509,8 @@ final class SpotlightSearchPanelController: NSObject, NSWindowDelegate {
 
     // MARK: Keyboard
 
-    /// Arrow keys, Return, Escape and ⌘1…⌘9 are intercepted before the text
-    /// field sees them — otherwise ↑/↓ would just move the insertion point.
+    /// Arrow keys, Return, ⌘↩, Escape and ⌘1…⌘9 are intercepted before the
+    /// text field sees them — otherwise ↑/↓ would just move the insertion point.
     /// A *local* monitor only sees events already routed to ClipStack, so it
     /// needs no special permission and cannot observe other apps.
     private func installKeyMonitor() {
@@ -438,6 +521,17 @@ final class SpotlightSearchPanelController: NSObject, NSWindowDelegate {
             let modifiers = event.modifierFlags
                 .intersection(.deviceIndependentFlagsMask)
                 .subtracting([.capsLock, .numericPad, .function])
+
+            if let session = self.viewModel.editSession {
+                return self.handleEditKey(event, modifiers: modifiers, session: session)
+            }
+
+            let keyCode = Int(event.keyCode)
+            if modifiers == .command, keyCode == kVK_Return || keyCode == kVK_ANSI_KeypadEnter {
+                self.beginEditing()
+                return nil
+            }
+
             if modifiers == .command,
                let digit = event.charactersIgnoringModifiers.flatMap({ Int($0) }),
                (1...9).contains(digit) {
@@ -495,17 +589,24 @@ struct SpotlightSearchView: View {
 
     var body: some View {
         VStack(spacing: PanelMetrics.gap) {
-            searchField
+            if let session = viewModel.editSession {
+                EditInstructionField(session: session, isFocused: $isFieldFocused)
+                AIEditCard(session: session)
+                    .transition(.opacity.combined(with: .scale(scale: 0.98, anchor: .top)))
+            } else {
+                searchField
 
-            if viewModel.hasQuery {
-                resultsCard
-                    .transition(
-                        .opacity.combined(with: .scale(scale: 0.98, anchor: .top))
-                    )
+                if viewModel.hasQuery {
+                    resultsCard
+                        .transition(
+                            .opacity.combined(with: .scale(scale: 0.98, anchor: .top))
+                        )
+                }
             }
         }
         .frame(width: PanelMetrics.width)
         .animation(.easeOut(duration: PanelMetrics.resizeDuration), value: viewModel.hasQuery)
+        .animation(.easeOut(duration: PanelMetrics.resizeDuration), value: viewModel.editSession == nil)
         // Opens the way Spotlight does: a short fade with the panel settling
         // into place from slightly small.
         .scaleEffect(viewModel.isRevealed ? 1 : 0.97, anchor: .top)
@@ -534,6 +635,10 @@ struct SpotlightSearchView: View {
             guard revealed else { return }
             DispatchQueue.main.async { isFieldFocused = true }
         }
+        .onChange(of: viewModel.editSession == nil) { _ in
+            // Switching mode swaps the text field; the new one needs focus.
+            DispatchQueue.main.async { isFieldFocused = true }
+        }
     }
 
     // MARK: Field
@@ -544,7 +649,7 @@ struct SpotlightSearchView: View {
                 .font(.system(size: 20, weight: .regular))
                 .foregroundStyle(.secondary)
 
-            TextField("Search saved texts and websites", text: $viewModel.query)
+            TextField("Search, or ⌘↩ to edit the clipboard", text: $viewModel.query)
                 .textFieldStyle(.plain)
                 .font(.system(size: 22, weight: .regular))
                 .focused($isFieldFocused)
@@ -715,5 +820,179 @@ private struct SpotlightResultRow: View {
                 ? nil
                 : BrowserLauncher.label(for: website.browser)
         }
+    }
+}
+
+// MARK: - AI edit mode
+
+/// The field in edit mode: what is being edited, and the instruction.
+struct EditInstructionField: View {
+    @ObservedObject var session: AIEditSession
+    var isFocused: FocusState<Bool>.Binding
+
+    var body: some View {
+        HStack(spacing: 12) {
+            Image(systemName: "sparkles")
+                .font(.system(size: 19, weight: .regular))
+                .foregroundStyle(.tint)
+
+            Text(session.sourceTitle)
+                .font(.system(size: 12, weight: .medium))
+                .lineLimit(1)
+                .padding(.horizontal, 9)
+                .padding(.vertical, 4)
+                .background(Capsule(style: .continuous).fill(Color.primary.opacity(0.1)))
+                .frame(maxWidth: 170, alignment: .leading)
+                .fixedSize(horizontal: true, vertical: false)
+
+            // Return is handled by the panel's key monitor, so no onSubmit here.
+            TextField(session.fieldPrompt, text: $session.instruction)
+                .textFieldStyle(.plain)
+                .font(.system(size: 20, weight: .regular))
+                .focused(isFocused)
+
+            if session.isWorking {
+                ProgressView()
+                    .controlSize(.small)
+            }
+        }
+        .padding(.horizontal, 26)
+        .frame(height: PanelMetrics.fieldHeight)
+        .frame(maxWidth: .infinity)
+        .contentShape(PanelMetrics.fieldShape)
+        .glassSurface(in: PanelMetrics.fieldShape)
+        .shadow(color: .black.opacity(0.18), radius: 18, y: 8)
+    }
+}
+
+/// The text being edited, with the last step's changes marked: added text
+/// in green, removed text struck through in red, placeholders still to fill
+/// in orange, and details ClipStack is asking for in purple.
+struct AIEditCard: View {
+    @ObservedObject var session: AIEditSession
+
+    var body: some View {
+        VStack(spacing: 0) {
+            ScrollView {
+                Text(attributedText)
+                    .font(session.looksLikeCode
+                          ? .system(size: 13, design: .monospaced)
+                          : .system(size: 14))
+                    .lineSpacing(3)
+                    .textSelection(.enabled)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.horizontal, 22)
+                    .padding(.vertical, 16)
+            }
+
+            Divider().opacity(0.5)
+
+            footer
+        }
+        .frame(height: PanelMetrics.cardHeight(resultCount: PanelMetrics.maximumVisibleRows))
+        .frame(maxWidth: .infinity)
+        .clipShape(PanelMetrics.cardShape)
+        .contentShape(PanelMetrics.cardShape)
+        .glassSurface(in: PanelMetrics.cardShape)
+        .shadow(color: .black.opacity(0.18), radius: 18, y: 8)
+    }
+
+    private var footer: some View {
+        HStack(spacing: 10) {
+            statusIcon
+                .frame(width: 16)
+
+            Text(session.status.message)
+                .font(.system(size: 12))
+                .foregroundStyle(statusStyle)
+                .lineLimit(2)
+                .layoutPriority(1)
+
+            Spacer(minLength: 8)
+
+            if session.hasChanges {
+                Button(session.showsChanges ? "Clean" : "Changes") {
+                    session.showsChanges.toggle()
+                }
+                .buttonStyle(.borderless)
+                .controlSize(.small)
+                .help(session.showsChanges ? "Show the result without markings" : "Mark what the last step changed")
+            }
+
+            Text("⌥↩ Quick fill · ⌘↩ Paste · ⌘Z Undo · Esc Done")
+                .font(.system(size: 11))
+                .foregroundStyle(.tertiary)
+                .lineLimit(1)
+                .fixedSize()
+        }
+        .padding(.horizontal, 18)
+        .frame(height: 44)
+    }
+
+    @ViewBuilder
+    private var statusIcon: some View {
+        switch session.status {
+        case .working:
+            ProgressView().controlSize(.small)
+        case .done:
+            Image(systemName: "checkmark.circle.fill").foregroundStyle(.green)
+        case .problem:
+            Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(.orange)
+        case .info:
+            Image(systemName: "sparkles").foregroundStyle(.secondary)
+        }
+    }
+
+    private var statusStyle: AnyShapeStyle {
+        if case .problem = session.status { return AnyShapeStyle(.orange) }
+        return AnyShapeStyle(.secondary)
+    }
+
+    // MARK: Marking up the text
+
+    private typealias Background = AttributeScopes.SwiftUIAttributes.BackgroundColorAttribute
+    private typealias Foreground = AttributeScopes.SwiftUIAttributes.ForegroundColorAttribute
+    private typealias Strikethrough = AttributeScopes.SwiftUIAttributes.StrikethroughStyleAttribute
+
+    private var attributedText: AttributedString {
+        guard session.showsChanges, session.hasChanges else {
+            return markingPlaceholders(session.text)
+        }
+        var result = AttributedString()
+        for segment in session.segments {
+            switch segment {
+            case .same(let part):
+                result += markingPlaceholders(part)
+            case .inserted(let part):
+                var run = AttributedString(part)
+                run[Background.self] = Color.green.opacity(0.28)
+                result += run
+            case .removed(let part):
+                var run = AttributedString(part)
+                run[Strikethrough.self] = .single
+                run[Foreground.self] = Color.red.opacity(0.85)
+                run[Background.self] = Color.red.opacity(0.1)
+                result += run
+            }
+        }
+        return result
+    }
+
+    /// Placeholders in orange; ClipStack's own ⟦gaps⟧ in purple.
+    private func markingPlaceholders(_ text: String) -> AttributedString {
+        var result = AttributedString()
+        var cursor = text.startIndex
+        for range in PlaceholderDetector.ranges(in: text) {
+            result += AttributedString(String(text[cursor..<range.lowerBound]))
+            let placeholder = String(text[range])
+            var run = AttributedString(placeholder)
+            let tint: Color = placeholder.hasPrefix("⟦") ? .purple : .orange
+            run[Background.self] = tint.opacity(0.22)
+            run[Foreground.self] = tint
+            result += run
+            cursor = range.upperBound
+        }
+        result += AttributedString(String(text[cursor...]))
+        return result
     }
 }

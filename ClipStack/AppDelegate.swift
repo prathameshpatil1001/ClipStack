@@ -16,6 +16,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var statusItemController: StatusItemController!
     private var recallPanelController: SpotlightSearchPanelController!
     private var textCapture: TextCaptureController!
+    private var stackFormatter: StackFormatController!
     private let hud = HUDController()
 
     // Created lazily and reused; closing a window keeps the controller alive.
@@ -47,6 +48,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             clipboard: environment.clipboard
         )
 
+        stackFormatter = StackFormatController(
+            preferences: environment.preferences,
+            stack: environment.stack
+        )
+
         wireHUD()
         buildStatusItem()
         wireHotKeys()
@@ -76,6 +82,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         environment.stack.onHUD = { [weak self] message, symbol in
             self?.hud.show(message, symbol: symbol)
         }
+        stackFormatter.onHUD = { [weak self] message, symbol in
+            self?.hud.show(message, symbol: symbol)
+        }
         textCapture.onHUD = { [weak self] message, symbol in
             self?.hud.show(message, symbol: symbol, duration: message.count > 30 ? 4 : 1.6)
         }
@@ -99,6 +108,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                     self?.textCapture.begin()
                 }
             },
+            formatStack: { [weak self] in
+                self?.statusItemController?.closePopover()
+                self?.stackFormatter.formatStack()
+            },
             openWebsite: { [weak self] website in
                 self?.statusItemController?.closePopover()
                 self?.openWebsite(website)
@@ -121,6 +134,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         hotKeys.setHandler(for: .recall) { [weak self] in
             self?.recallPanelController.toggle()
+        }
+
+        hotKeys.setHandler(for: .formatStack) { [weak self] in
+            self?.stackFormatter.formatStack()
         }
 
         hotKeys.setHandler(for: .captureText) { [weak self] in

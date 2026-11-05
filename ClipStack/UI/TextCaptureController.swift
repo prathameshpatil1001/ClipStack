@@ -26,7 +26,10 @@ struct CaptureResult {
     var layout: TextLayout?
     var arrangedByAI: Bool
     var style: LayoutRenderer.Style
+    /// Lines read, or for Format Stack, items in the stack.
     var lineCount: Int
+    /// Format Stack's result rather than a screen capture.
+    var isStack = false
 
     var text: String {
         guard let layout else { return rawText }
@@ -40,12 +43,15 @@ struct CaptureResult {
     var isComplex: Bool { arrangedByAI || (layout?.isComplex ?? false) }
 
     var summary: String {
-        guard let layout else { return "\(lineCount) line\(lineCount == 1 ? "" : "s"), exactly as read" }
-        var parts = ["\(lineCount) line\(lineCount == 1 ? "" : "s")"]
+        let unit = isStack ? "item" : "line"
+        guard let layout else { return "\(lineCount) \(unit)\(lineCount == 1 ? "" : "s"), exactly as read" }
+        var parts = ["\(lineCount) \(unit)\(lineCount == 1 ? "" : "s")"]
         if layout.newspaperColumnRuns > 0 { parts.append("columns read one after another") }
         if layout.sideBySideRows > 0 { parts.append("\(layout.sideBySideRows) side-by-side rows") }
         if layout.listItemCount > 0 { parts.append("\(layout.listItemCount) list items") }
-        if arrangedByAI { parts.append("order checked with Apple Intelligence") }
+        if arrangedByAI {
+            parts.append(isStack ? "lost structure restored with Apple Intelligence" : "order checked with Apple Intelligence")
+        }
         return parts.joined(separator: " · ")
     }
 
@@ -68,7 +74,10 @@ struct CaptureResult {
 
         if formatting == .smart, layout.isComplex, OnDeviceAI.isAvailable {
             let segments = TextLayoutEngine.rows(lines).flatMap { $0 }
-            if let proposal = try? await OnDeviceAI.arrangeLayout(prompt: LayoutArrangement.prompt(for: segments)),
+            if let proposal = try? await OnDeviceAI.arrangeLayout(
+                prompt: LayoutArrangement.prompt(for: segments),
+                instructions: LayoutArrangement.instructions
+            ),
                let blocks = LayoutArrangement.blocks(from: proposal, lines: segments, options: options) {
                 layout.blocks = blocks
                 arrangedByAI = true
@@ -188,19 +197,28 @@ final class TextCaptureController {
         }
 
         guard showPreview else {
-            deliver(text: result.text, html: result.html)
+            deliver(text: result.text, html: result.html, result: result)
             return
         }
-        preview.show(result, addsToStack: stack.isEnabled) { [weak self] text, html in
-            self?.deliver(text: text, html: html)
+        preview.show(result, primaryTitle: stack.isEnabled ? "Add to Stack" : "Copy") { [weak self] text, html in
+            self?.deliver(text: text, html: html, result: result)
         }
     }
 
     /// Into the stack when Stack Mode is on — that is what it is for — and
     /// onto the clipboard otherwise, with formatting for apps that take it.
-    private func deliver(text: String, html: String?) {
+    private func deliver(text: String, html: String?, result: CaptureResult) {
         if stack.isEnabled {
-            stack.addCaptured(text)
+            // Both versions go with it, so the stack row can switch between
+            // them and Format Stack can reuse the layout.
+            let showsRaw = result.layout == nil || text == result.rawText
+            let capture = CapturedText(
+                blocks: result.layout?.blocks ?? [],
+                formattedText: showsRaw ? result.text : text,
+                rawText: result.rawText,
+                showsRaw: showsRaw
+            )
+            stack.addCaptured(text, capture: capture)
         } else {
             if let html {
                 clipboard.write(text, html: html)
@@ -235,7 +253,7 @@ final class CapturePreviewController: NSObject, NSWindowDelegate {
     private var panel: NSPanel?
     private var onDeliver: ((String, String?) -> Void)?
 
-    func show(_ result: CaptureResult, addsToStack: Bool, onDeliver: @escaping (String, String?) -> Void) {
+    func show(_ result: CaptureResult, primaryTitle: String, onDeliver: @escaping (String, String?) -> Void) {
         close()
         self.onDeliver = onDeliver
 
@@ -245,7 +263,7 @@ final class CapturePreviewController: NSObject, NSWindowDelegate {
             backing: .buffered,
             defer: false
         )
-        panel.title = "Captured Text"
+        panel.title = result.isStack ? "Formatted Stack" : "Captured Text"
         panel.titlebarAppearsTransparent = true
         panel.level = .floating
         panel.isReleasedWhenClosed = false
@@ -253,7 +271,7 @@ final class CapturePreviewController: NSObject, NSWindowDelegate {
         panel.delegate = self
         panel.contentView = NSHostingView(rootView: CapturePreviewView(
             result: result,
-            addsToStack: addsToStack,
+            primaryTitle: primaryTitle,
             onDone: { [weak self] text, html in self?.deliver(text, html) },
             onCancel: { [weak self] in self?.close() }
         ))
@@ -293,16 +311,16 @@ final class CapturePreviewController: NSObject, NSWindowDelegate {
 
 private struct CapturePreviewView: View {
     let result: CaptureResult
-    let addsToStack: Bool
+    let primaryTitle: String
     let onDone: (String, String?) -> Void
     let onCancel: () -> Void
 
     @State private var showsRaw = false
     @State private var style: LayoutRenderer.Style
 
-    init(result: CaptureResult, addsToStack: Bool, onDone: @escaping (String, String?) -> Void, onCancel: @escaping () -> Void) {
+    init(result: CaptureResult, primaryTitle: String, onDone: @escaping (String, String?) -> Void, onCancel: @escaping () -> Void) {
         self.result = result
-        self.addsToStack = addsToStack
+        self.primaryTitle = primaryTitle
         self.onDone = onDone
         self.onCancel = onCancel
         _style = State(initialValue: result.style)
@@ -336,7 +354,7 @@ private struct CapturePreviewView: View {
                 HStack(spacing: 12) {
                     Picker("Version", selection: $showsRaw) {
                         Text("Formatted").tag(false)
-                        Text("As read").tag(true)
+                        Text(result.isStack ? "As copied" : "As read").tag(true)
                     }
                     .pickerStyle(.segmented)
                     .labelsHidden()
@@ -369,14 +387,16 @@ private struct CapturePreviewView: View {
 
             HStack(spacing: 10) {
                 Text(isFormatted
-                     ? "Only the layout differs from what was read, plus the fixes chosen in Settings."
-                     : "Exactly as recognised.")
+                     ? (result.isStack
+                        ? "Only the layout differs from what you copied, plus the fixes chosen in Settings."
+                        : "Only the layout differs from what was read, plus the fixes chosen in Settings.")
+                     : (result.isStack ? "Exactly as copied, as Paste Stack gives it." : "Exactly as recognised."))
                     .font(.caption)
                     .foregroundStyle(.secondary)
                 Spacer()
                 Button("Cancel", role: .cancel, action: onCancel)
                     .keyboardShortcut(.cancelAction)
-                Button(addsToStack ? "Add to Stack" : "Copy") {
+                Button(primaryTitle) {
                     onDone(text, html)
                 }
                 .buttonStyle(.borderedProminent)

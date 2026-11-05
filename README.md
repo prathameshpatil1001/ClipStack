@@ -181,6 +181,7 @@ Every shortcut is remappable in **Settings ▸ Shortcuts** and stored in `UserDe
 | <kbd>⌥⌘S</kbd> | **Toggle Stack Mode** — turn stacking on or off from anywhere |
 | <kbd>⌥Space</kbd> | **Recall** — open the saved-text search panel |
 | <kbd>⌥⌘T</kbd> | **Capture Text from Screen** — drag over text to read it into the stack |
+| <kbd>⌃⌥⌘V</kbd> | **Paste Stack Formatted** — the whole stack as one tidy document (see below) |
 
 The panel opens as a bare search field — it never puts your saved texts on screen until you type —
 and grows downwards into results from a fixed top edge, the way Spotlight does.
@@ -252,6 +253,25 @@ lines joined. Nothing else is added, dropped or reworded.
 
 Needs macOS 14 and the **Screen Recording** permission (macOS asks the first time; reopen
 ClipStack after granting it).
+
+### Format Stack
+
+<kbd>⌃⌥⌘V</kbd> (or **Paste Formatted** in the menu) is Paste Stack with the layout tidied: the whole
+stack becomes one structured document, pasted for you if auto-paste is on, with real bullets and
+tables for Notes, Pages, Mail and Docs.
+
+- A **screen capture** keeps the layout it was given when it was captured.
+- **Copied text** is laid out by its own structure: indentation, `•`/`-`/`1.`/`(a)` markers, Markdown
+  headings and tables, tab-separated rows, blank lines. Code and commands are kept verbatim.
+- Items are joined with a paragraph break, except where one carries on from the last: bullets
+  copied one at a time become **one list**, rows with the same columns **one table**.
+- In **Smart** mode, copied text that looks like it lost its structure on the way — a list copied
+  from a web page arrives with no bullets — is labelled by Apple's on-device model. It may only say
+  what each run of lines is, in the original order; anything else is refused. When it was used,
+  the result is shown first, with the stack **as copied** one click away.
+
+Every captured item keeps both its versions: right-click it in the stack for **Use Text As Read** /
+**Use Formatted Text**.
 
 ## AI edit mode and Profile
 

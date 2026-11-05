@@ -8,6 +8,16 @@ and this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 ## [Unreleased]
 
 ### Added
+- **Format Stack (⌃⌥⌘V).** Paste the whole stack as one structured document:
+  captures keep their layout, copied text is read by its own structure
+  (markers, indentation, Markdown headings and tables, tab-separated rows;
+  code kept verbatim), bullets copied one by one become one list and matching
+  rows one table. Pasted (or copied) with HTML and RTF alongside the text. In
+  Smart mode, copied text that lost its structure is labelled by the on-device
+  model, accepted only if it covers every line once, in order, and then
+  previewed first.
+- **Captured stack items keep both versions**: right-click to switch between
+  the formatted text and the text as read.
 - **Screen text capture (⌥⌘T).** Drag over anything on screen and its text
   goes into the stack (or onto the clipboard, with real bullets and tables for
   Notes, Pages and Docs), with its layout rebuilt: bullets, including ones

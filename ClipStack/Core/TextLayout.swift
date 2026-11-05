@@ -59,9 +59,11 @@ struct LayoutOptions: Equatable {
 
 // MARK: - Output
 
-struct LayoutBlock: Equatable {
-    enum Kind: String, Equatable {
+struct LayoutBlock: Hashable {
+    enum Kind: String, Hashable {
         case paragraph, heading, bullet, numbered, tableRow
+        /// Code or a command, kept verbatim, line breaks and indentation included.
+        case code
     }
 
     var kind: Kind
@@ -390,7 +392,7 @@ enum TextLayoutEngine {
                     // bullet mark sits outside the recognised text.
                     continues = line.minX > lastLeft + 0.4 * h
                         || (blockMarked.last == true && abs(line.minX - lastLeft) <= 0.6 * h)
-                case .heading, .tableRow:
+                case .heading, .tableRow, .code:
                     continues = false
                 }
                 if continues {
@@ -487,6 +489,7 @@ enum LayoutRenderer {
             let indent = String(repeating: "  ", count: block.level)
             switch (block.kind, style) {
             case (.heading, .markdown): output += "## " + block.text
+            case (.code, .markdown): output += "```\n" + block.text + "\n```"
             case (.bullet, .plain): output += indent + "• " + block.text
             case (.bullet, .markdown): output += indent + "- " + block.text
             case (.numbered, _): output += indent + block.text
@@ -498,7 +501,8 @@ enum LayoutRenderer {
     }
 
     private static func separator(before block: LayoutBlock, after previous: LayoutBlock) -> String {
-        block.startsAfterGap || (block.kind == .heading) || (previous.kind == .heading) ? "\n\n" : "\n"
+        block.startsAfterGap || block.kind == .heading || previous.kind == .heading
+            || block.kind == .code || previous.kind == .code ? "\n\n" : "\n"
     }
 
     private static func table(_ rows: [[String]], style: Style) -> String {
@@ -541,6 +545,8 @@ enum LayoutRenderer {
                 html += "<h3>\(escape(block.text))</h3>"
             case .paragraph:
                 html += "<p>\(escape(block.text))</p>"
+            case .code:
+                html += "<pre>\(escape(block.text))</pre>"
             case .numbered:
                 let margin = block.level * 24
                 html += "<p style=\"margin:0 0 0 \(margin)px\">\(escape(block.text))</p>"
@@ -670,6 +676,256 @@ enum LayoutArrangement {
         guard options.joinWrappedLines else { return lines.map(\.text).joined(separator: "\n") }
         return lines.dropFirst().reduce(lines.first?.text ?? "") {
             TextLayoutEngine.join($0, $1.text, options: options)
+        }
+    }
+}
+
+// MARK: - Copied text
+
+/// One non-blank line of copied text.
+struct TextLine: Equatable {
+    var text: String
+    /// Leading spaces, a tab counting as four.
+    var indent: Int
+    /// A blank line came before it.
+    var afterBlank: Bool
+}
+
+/// Layout for text that was copied rather than captured: there is no picture
+/// to go on, but the text carries its own structure — blank lines, indentation,
+/// bullet and number markers, Markdown headings and tables, tab-separated rows.
+enum PlainTextLayout {
+
+    static func lines(_ text: String) -> [TextLine] {
+        var result: [TextLine] = []
+        var sawBlank = false
+        for raw in text.replacingOccurrences(of: "\r\n", with: "\n").components(separatedBy: "\n") {
+            let content = raw.trimmingCharacters(in: .whitespaces)
+            guard !content.isEmpty else {
+                sawBlank = !result.isEmpty
+                continue
+            }
+            var indent = 0
+            for character in raw {
+                if character == " " { indent += 1 } else if character == "\t" { indent += 4 } else { break }
+            }
+            result.append(TextLine(text: content, indent: indent, afterBlank: sawBlank))
+            sawBlank = false
+        }
+        return result
+    }
+
+    static func blocks(from text: String, options: LayoutOptions) -> [LayoutBlock] {
+        // Code and commands keep every character, indentation included.
+        if isCode(text) {
+            let verbatim = text.trimmingCharacters(in: .newlines)
+            return verbatim.isEmpty ? [] : [LayoutBlock(kind: .code, text: verbatim)]
+        }
+
+        let lines = self.lines(text)
+        let markers = lines.map { ListMarker.parse($0.text, hasBulletMark: false, fixMisread: false) }
+        // Nesting comes from the distinct indents list items use, in order.
+        let listIndents = Array(Set(zip(lines, markers).compactMap { $1 == nil ? nil : $0.indent })).sorted()
+        func level(for indent: Int) -> Int {
+            min(4, listIndents.lastIndex { $0 <= indent } ?? 0)
+        }
+
+        var blocks: [LayoutBlock] = []
+        var itemIndent: Int?
+        var questionLevel: Int?
+
+        for (index, line) in lines.enumerated() {
+            var block: LayoutBlock
+
+            if let heading = markdownHeading(line.text) {
+                block = LayoutBlock(kind: .heading, text: heading)
+                itemIndent = nil
+                questionLevel = nil
+            } else if let cells = tableCells(line.text) {
+                if cells.isEmpty { continue }   // a Markdown |---| rule
+                block = LayoutBlock(kind: .tableRow, cells: cells)
+                itemIndent = nil
+            } else if let marker = markers[index] {
+                let level = level(for: line.indent)
+                switch marker.kind {
+                case .bullet:
+                    block = LayoutBlock(kind: .bullet, level: level, text: marker.content)
+                case .number:
+                    block = LayoutBlock(kind: .numbered, level: level, text: marker.content)
+                    questionLevel = level
+                case .letter:
+                    let nested = questionLevel.map { level <= $0 ? $0 + 1 : level } ?? level
+                    block = LayoutBlock(kind: .numbered, level: nested, text: marker.content)
+                }
+                itemIndent = line.indent
+            } else if options.joinWrappedLines, !line.afterBlank, let indent = itemIndent,
+                      line.indent > indent, var last = blocks.last, last.isListItem {
+                // Indented under a list item: that item's text carrying on.
+                last.text = TextLayoutEngine.join(last.text, line.text, options: options)
+                blocks[blocks.count - 1] = last
+                continue
+            } else {
+                block = LayoutBlock(kind: .paragraph, text: line.text)
+                itemIndent = nil
+            }
+
+            block.startsAfterGap = line.afterBlank
+            blocks.append(block)
+        }
+        return blocks
+    }
+
+    /// Stricter than "starts with a command word": prose that happens to begin
+    /// "go to…" or "make sure…" must still be formatted as prose.
+    static func isCode(_ text: String) -> Bool {
+        if text.contains(" \\\n") || text.contains("&&") || text.contains("```") { return true }
+        let lines = text.split(separator: "\n").map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }
+        guard !lines.isEmpty else { return false }
+        let commandWords = ["sudo", "scp", "ssh", "rsync", "git", "docker", "kubectl", "npm", "npx", "pnpm",
+                            "yarn", "pip", "python", "python3", "curl", "wget", "export", "cd", "mkdir", "brew",
+                            "gcloud", "aws", "terraform", "cargo", "chmod", "chown", "ls", "cp", "mv", "rm"]
+        let codeLike = lines.filter { line in
+            if line.hasPrefix("$ ") || line.hasPrefix("#!") || line.hasPrefix("//") { return true }
+            if let last = line.last, ";{}".contains(last) { return true }
+            let firstWord = line.split(separator: " ").first.map(String.init) ?? ""
+            return commandWords.contains(firstWord)
+                && (line.contains(" -") || line.contains("/") || line.contains("="))
+        }
+        return Double(codeLike.count) >= 0.6 * Double(lines.count)
+    }
+
+    /// "## Results" → "Results".
+    private static func markdownHeading(_ text: String) -> String? {
+        guard text.hasPrefix("#") else { return nil }
+        let hashes = text.prefix { $0 == "#" }
+        guard hashes.count <= 6 else { return nil }
+        let rest = text.dropFirst(hashes.count)
+        guard rest.first == " " else { return nil }
+        let title = rest.trimmingCharacters(in: CharacterSet(charactersIn: " #"))
+        return title.isEmpty ? nil : title
+    }
+
+    /// Cells of a Markdown table row or a tab-separated line; an empty array
+    /// for a Markdown rule (`|---|---|`); nil when the line isn't a row.
+    private static func tableCells(_ text: String) -> [String]? {
+        if text.hasPrefix("|"), text.hasSuffix("|"), text.count > 2 {
+            let cells = text.dropFirst().dropLast()
+                .components(separatedBy: "|")
+                .map { $0.trimmingCharacters(in: .whitespaces) }
+            let isRule = cells.allSatisfy { cell in
+                !cell.isEmpty && cell.allSatisfy { $0 == "-" || $0 == ":" } && cell.contains("-")
+            }
+            return isRule ? [] : cells
+        }
+        if text.contains("\t") {
+            let cells = text.components(separatedBy: "\t").map { $0.trimmingCharacters(in: .whitespaces) }
+            if cells.filter({ !$0.isEmpty }).count >= 2 { return cells }
+        }
+        return nil
+    }
+}
+
+// MARK: - The whole stack
+
+/// One stack item, as Format Stack sees it.
+struct StackFormatItem {
+    var text: String
+    /// A screen capture's layout, when the item has one. Copied text has none.
+    var blocks: [LayoutBlock]?
+}
+
+enum StackFormatter {
+
+    /// Each item's own blocks, joined into one document. Items are separated
+    /// by a paragraph break, except where one carries on from the last: bullets
+    /// copied one at a time become one list, rows with the same columns one table.
+    static func merge(_ parts: [[LayoutBlock]]) -> [LayoutBlock] {
+        var merged: [LayoutBlock] = []
+        for part in parts where !part.isEmpty {
+            var part = part
+            if let last = merged.last, let first = part.first {
+                let carriesOn = (last.isListItem && first.isListItem && last.kind == first.kind)
+                    || (last.kind == .tableRow && first.kind == .tableRow && last.cells.count == first.cells.count)
+                part[0].startsAfterGap = !carriesOn
+            } else {
+                part[0].startsAfterGap = false
+            }
+            merged.append(contentsOf: part)
+        }
+        return merged
+    }
+
+    /// Items laid out by the rules: captures keep their layout, copied text
+    /// is read by its own structure.
+    static func blocks(for items: [StackFormatItem], options: LayoutOptions) -> [[LayoutBlock]] {
+        items.map { item in
+            if let blocks = item.blocks, !blocks.isEmpty { return blocks }
+            return PlainTextLayout.blocks(from: item.text, options: options)
+        }
+    }
+
+    /// Copied text that may have lost its structure on the way — a list copied
+    /// from a web page arrives with no bullets — and is worth asking the
+    /// on-device model about: several lines, all plain paragraphs.
+    static func mightHaveLostStructure(_ blocks: [LayoutBlock], lineCount: Int) -> Bool {
+        lineCount >= 3 && !blocks.isEmpty && blocks.allSatisfy { $0.kind == .paragraph }
+    }
+}
+
+// MARK: - Labelling copied lines with the on-device model
+
+enum TextArrangement {
+
+    static let instructions = """
+    You label lines of text the user copied, for example from a web page where list bullets were lost. You never change, add, remove or reorder anything: you only say what each group of consecutive lines is.
+
+    Each line has a number, its indentation and its text.
+
+    Return blocks covering every line exactly once, in the original order.
+    Kinds:
+    - heading: a title.
+    - paragraph: running text. Consecutive lines of the same sentence belong in one block.
+    - bullet: one list item. Level 1 for an item nested under another.
+    - numbered: one numbered or lettered item, such as a question "1." or an option "(a)". Options are one level below their question.
+    """
+
+    static func prompt(for lines: [TextLine]) -> String {
+        var output = ["LINES (number, indent, text):"]
+        for (index, line) in lines.enumerated() {
+            let text = line.text.count > 90 ? String(line.text.prefix(90)) + "…" : line.text
+            output.append("\(index + 1). indent=\(line.indent)\(line.afterBlank ? " (after a blank line)" : "") \(text)")
+        }
+        return output.joined(separator: "\n")
+    }
+
+    /// Blocks from the model's labels — only if they cover every line once,
+    /// in the original order. Otherwise nil, and the rules' result stands.
+    static func blocks(from proposal: [ProposedLayoutBlock], lines: [TextLine], options: LayoutOptions) -> [LayoutBlock]? {
+        guard !lines.isEmpty, proposal.flatMap(\.lines) == Array(1...lines.count) else { return nil }
+
+        return proposal.filter { !$0.lines.isEmpty }.map { proposed in
+            let members = proposed.lines.map { lines[$0 - 1] }
+            let joined = members.dropFirst().reduce(members[0].text) {
+                options.joinWrappedLines
+                    ? TextLayoutEngine.join($0, $1.text, options: options)
+                    : $0 + "\n" + $1.text
+            }
+            let level = min(4, max(0, proposed.level))
+            var block: LayoutBlock
+            switch proposed.kind.lowercased() {
+            case "heading":
+                block = LayoutBlock(kind: .heading, text: joined)
+            case "bullet":
+                let marker = ListMarker.parse(joined, hasBulletMark: false, fixMisread: false)
+                block = LayoutBlock(kind: .bullet, level: level,
+                                    text: marker?.kind == .bullet ? marker!.content : joined)
+            case "numbered":
+                block = LayoutBlock(kind: .numbered, level: level, text: joined)
+            default:
+                block = LayoutBlock(kind: .paragraph, text: joined)
+            }
+            block.startsAfterGap = members[0].afterBlank
+            return block
         }
     }
 }

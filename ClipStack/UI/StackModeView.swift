@@ -42,9 +42,12 @@ struct StackModeView: View {
         // `.onMove` on macOS gives rows native drag-to-reorder with no edit mode.
         List {
             ForEach(Array(environment.stack.entries.enumerated()), id: \.element.id) { index, entry in
-                StackRow(index: index + 1, entry: entry) {
-                    environment.stack.remove(entry)
-                }
+                StackRow(
+                    index: index + 1,
+                    entry: entry,
+                    onToggleVersion: { environment.stack.toggleCapturedVersion(entry) },
+                    onRemove: { environment.stack.remove(entry) }
+                )
                 .listRowInsets(EdgeInsets(top: 1, leading: 4, bottom: 1, trailing: 4))
             }
             .onMove { source, destination in
@@ -63,6 +66,7 @@ struct StackModeView: View {
 private struct StackRow: View {
     let index: Int
     let entry: StackEntry
+    let onToggleVersion: () -> Void
     let onRemove: () -> Void
 
     @State private var isHovering = false
@@ -73,6 +77,13 @@ private struct StackRow: View {
                 .font(.system(size: 10, weight: .semibold, design: .rounded))
                 .foregroundStyle(.secondary)
                 .frame(width: 16, alignment: .trailing)
+
+            if let capture = entry.capture {
+                Image(systemName: capture.showsRaw ? "text.alignleft" : "text.viewfinder")
+                    .font(.system(size: 10))
+                    .foregroundStyle(.secondary)
+                    .help(capture.showsRaw ? "Read from the screen — text as read" : "Read from the screen — formatted")
+            }
 
             Text(entry.text.replacingOccurrences(of: "\n", with: " ").truncated(to: 46))
                 .font(.system(size: 12))
@@ -105,6 +116,10 @@ private struct StackRow: View {
         .onHover { isHovering = $0 }
         .help(entry.text.truncated(to: 300))
         .contextMenu {
+            if let capture = entry.capture, capture.canSwitch {
+                Button(capture.showsRaw ? "Use Formatted Text" : "Use Text As Read", action: onToggleVersion)
+                Divider()
+            }
             Button("Remove", action: onRemove)
         }
     }

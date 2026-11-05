@@ -212,6 +212,14 @@ struct MenuBarView: View {
             }
 
             MenuRow(
+                title: preferences.autoPasteEnabled ? "Paste Formatted" : "Copy Formatted",
+                systemImage: "list.bullet.indent",
+                shortcut: preferences.formatStackHotKey?.displayString,
+                isEnabled: !environment.stack.entries.isEmpty,
+                action: actions.formatStack
+            )
+
+            MenuRow(
                 title: "Add Current Clipboard",
                 systemImage: "plus.rectangle.on.rectangle",
                 action: { environment.stack.appendCurrentClipboard() }

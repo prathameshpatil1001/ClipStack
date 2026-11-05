@@ -45,6 +45,7 @@ xcrun swiftc -O \
     Tests/TemplateFillChecks.swift \
     Tests/ProfileChecks.swift \
     Tests/TextLayoutChecks.swift \
+    Tests/StackFormatChecks.swift \
     Tests/main.swift
 
 "$BUILD_DIR/clipstack-checks"

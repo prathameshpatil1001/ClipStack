@@ -52,6 +52,20 @@ struct StackEntry: Identifiable, Hashable {
     let id = UUID()
     var text: String
     var capturedAt: Date = Date()
+    /// Set for text read from the screen: both versions and the layout, so
+    /// the item can be flipped between them and Format Stack can reuse it.
+    var capture: CapturedText?
+}
+
+/// A screen capture's two versions.
+struct CapturedText: Hashable {
+    /// The rebuilt layout; empty when the capture was taken as raw text.
+    var blocks: [LayoutBlock]
+    var formattedText: String
+    var rawText: String
+    var showsRaw: Bool
+
+    var canSwitch: Bool { !blocks.isEmpty && formattedText != rawText }
 }
 
 @MainActor
@@ -244,6 +258,34 @@ final class StackModeController: ObservableObject {
         }
     }
 
+    /// Format Stack's result: like Paste Stack, but with a formatted copy on
+    /// the clipboard alongside the text.
+    /// - Parameter targetApp: the app to paste into, when focus has to come
+    ///   back to it first (after the preview).
+    func pasteFormatted(text: String, html: String?, itemCount: Int, targetApp: NSRunningApplication?) {
+        let written = html.map { clipboard.write(text, html: $0) } ?? clipboard.write(text)
+        guard written else {
+            onHUD?("Could not write clipboard", "exclamationmark.triangle")
+            return
+        }
+        consumedChangeCount = clipboard.changeCount
+
+        guard preferences.autoPasteEnabled else {
+            onHUD?("Formatted stack copied (\(itemCount)) — press ⌘V", "doc.on.clipboard")
+            finishPaste()
+            return
+        }
+
+        Task { @MainActor in
+            let pasted = await PasteSimulator.pasteIntoFrontmostApp(afterActivating: targetApp)
+            onHUD?(pasted
+                   ? "Pasted formatted stack (\(itemCount))"
+                   : "Formatted stack copied (\(itemCount)) — press ⌘V",
+                   pasted ? "checkmark.circle.fill" : "doc.on.clipboard")
+            finishPaste()
+        }
+    }
+
     private func finishPaste() {
         if preferences.clearStackAfterPaste {
             entries.removeAll()
@@ -307,9 +349,23 @@ final class StackModeController: ObservableObject {
         append(text)
     }
 
-    /// Adds text that didn't come from a copy — a screen capture.
-    func addCaptured(_ text: String) {
-        append(text)
+    /// Adds text read from the screen, keeping both of its versions.
+    func addCaptured(_ text: String, capture: CapturedText?) {
+        entries.append(StackEntry(text: text, capture: capture))
+        onStackChanged?()
+        onHUD?("Added to stack (\(entries.count))", "text.viewfinder")
+        scheduleAutoClearIfNeeded()
+    }
+
+    /// Flips a captured item between its formatted text and the text as read.
+    func toggleCapturedVersion(_ entry: StackEntry) {
+        guard let index = entries.firstIndex(where: { $0.id == entry.id }),
+              var capture = entries[index].capture, capture.canSwitch
+        else { return }
+        capture.showsRaw.toggle()
+        entries[index].capture = capture
+        entries[index].text = capture.showsRaw ? capture.rawText : capture.formattedText
+        onStackChanged?()
     }
 
     private func append(_ text: String) {

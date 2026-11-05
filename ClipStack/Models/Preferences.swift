@@ -101,6 +101,7 @@ final class Preferences: ObservableObject {
         static let recallAutoPaste    = "recallAutoPaste"
         static let captureWithoutKey  = "stackCapturesCopiesWithoutShortcut"
         static let hotKeyCaptureText  = "hotKeyCaptureText"
+        static let hotKeyFormatStack  = "hotKeyFormatStack"
         static let captureFormatting  = "captureFormatting"
         static let captureStyle       = "captureOutputStyle"
         static let capturePreview     = "capturePreviewPolicy"
@@ -151,6 +152,10 @@ final class Preferences: ObservableObject {
         switch Self.decodeOptional(defaults, Key.hotKeyCaptureText) {
         case .none:                  captureTextHotKey = .defaultCaptureText
         case .some(let storedValue): captureTextHotKey = storedValue
+        }
+        switch Self.decodeOptional(defaults, Key.hotKeyFormatStack) {
+        case .none:                  formatStackHotKey = .defaultFormatStack
+        case .some(let storedValue): formatStackHotKey = storedValue
         }
     }
 
@@ -258,12 +263,17 @@ final class Preferences: ObservableObject {
         didSet { Self.encodeOptional(defaults, captureTextHotKey, Key.hotKeyCaptureText) }
     }
 
+    @Published var formatStackHotKey: KeyCombo? {
+        didSet { Self.encodeOptional(defaults, formatStackHotKey, Key.hotKeyFormatStack) }
+    }
+
     func resetShortcutsToDefaults() {
         pasteStackHotKey = .defaultPasteStack
         resetStackHotKey = .defaultResetStack
         recallHotKey = .defaultRecall
         toggleStackModeHotKey = .defaultToggleStackMode
         captureTextHotKey = .defaultCaptureText
+        formatStackHotKey = .defaultFormatStack
     }
 
     // MARK: - First launch

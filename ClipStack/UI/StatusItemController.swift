@@ -30,6 +30,7 @@ final class StatusItemController {
         var openWebsites: () -> Void
         var openProfile: () -> Void
         var captureText: () -> Void
+        var formatStack: () -> Void
         var openWebsite: (Website) -> Void
         var quit: () -> Void
     }

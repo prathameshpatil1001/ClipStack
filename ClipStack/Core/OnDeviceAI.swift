@@ -127,14 +127,16 @@ enum OnDeviceAI {
 
     /// Asks the model how recognised lines go together: kinds and line
     /// numbers only, never text. The caller checks every line is used once.
-    static func arrangeLayout(prompt: String) async throws -> [ProposedLayoutBlock] {
+    /// - Parameter instructions: `LayoutArrangement.instructions` for a screen
+    ///   capture, `TextArrangement.instructions` for copied text.
+    static func arrangeLayout(prompt: String, instructions: String) async throws -> [ProposedLayoutBlock] {
         if let reason = unavailableReason { throw OnDeviceAIError.unavailable(reason) }
         guard prompt.count <= maximumCharacters else { throw OnDeviceAIError.tooLong }
 
         #if canImport(FoundationModels)
         if #available(macOS 26.0, *) {
             do {
-                let session = LanguageModelSession(instructions: LayoutArrangement.instructions)
+                let session = LanguageModelSession(instructions: instructions)
                 let response = try await session.respond(
                     to: prompt,
                     generating: GeneratedLayout.self

@@ -306,6 +306,15 @@ struct SettingsView: View {
                     preferences.captureTextHotKey = new
                     environment.applyHotKeyBindings()
                 }
+
+                shortcutRow(
+                    action: .formatStack,
+                    combo: preferences.formatStackHotKey,
+                    allowsClearing: true
+                ) { new in
+                    preferences.formatStackHotKey = new
+                    environment.applyHotKeyBindings()
+                }
             } footer: {
                 Text("⌘C is not a remappable shortcut: while Stack Mode is on ClipStack observes the system-wide copy keystroke without changing what it does.")
                     .font(.caption)

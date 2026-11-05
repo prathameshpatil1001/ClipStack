@@ -18,6 +18,7 @@ import AppKit
 import SwiftUI
 
 /// What a capture produced, in every form the preview can offer.
+@MainActor
 struct CaptureResult {
     /// Rows top to bottom, exactly as recognised.
     var rawText: String

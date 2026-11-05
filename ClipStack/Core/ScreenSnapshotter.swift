@@ -20,6 +20,7 @@ struct ScreenSnapshot {
     let image: CGImage
 }
 
+@MainActor
 enum ScreenRecordingPermission {
     static var isGranted: Bool { CGPreflightScreenCaptureAccess() }
 
@@ -35,6 +36,7 @@ enum ScreenRecordingPermission {
 }
 
 @available(macOS 14.0, *)
+@MainActor
 enum ScreenSnapshotter {
 
     static func snapshotAllScreens() async throws -> [ScreenSnapshot] {

@@ -591,6 +591,63 @@ enum FactExtraction {
     }
 }
 
+// MARK: - What ⌘↩ edits
+
+enum EditSource {
+
+    struct Choice: Equatable {
+        var text: String
+        /// For the chip in the field: "Pasted text", "Typed text", "Clipboard",
+        /// or the saved text's title.
+        var title: String
+    }
+
+    /// Up to this length, text in the field with a saved text highlighted is a
+    /// search for that saved text rather than text to edit.
+    static let searchLength = 40
+
+    /// Decides what ⌘↩ edits. What is in the field wins: it is what the user
+    /// just put there. Only an empty field falls back to the clipboard.
+    ///
+    /// - Parameters:
+    ///   - typed: the search field's contents.
+    ///   - clipboard: the clipboard's text, if any.
+    ///   - highlighted: the highlighted saved text, if a result is highlighted.
+    static func choose(
+        typed: String,
+        clipboard: String?,
+        highlighted: (title: String, body: String)?
+    ) -> Choice? {
+        let field = typed.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        guard !field.isEmpty else {
+            guard let clipboard, !clipboard.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+                return nil
+            }
+            return Choice(text: clipboard, title: "Clipboard")
+        }
+
+        // Pasted into the field: take the clipboard's copy, which keeps the
+        // line breaks a one-line search field flattens.
+        if let clipboard, sameIgnoringWhitespace(clipboard, field) {
+            return Choice(text: clipboard, title: "Pasted text")
+        }
+
+        // A short search that found a saved text: edit the saved text.
+        if let highlighted, field.count <= searchLength, !field.contains("\n") {
+            return Choice(text: highlighted.body, title: highlighted.title)
+        }
+
+        return Choice(text: field, title: "Typed text")
+    }
+
+    static func sameIgnoringWhitespace(_ lhs: String, _ rhs: String) -> Bool {
+        let strip: (String) -> String = { $0.filter { !$0.isWhitespace } }
+        let left = strip(lhs)
+        return !left.isEmpty && left == strip(rhs)
+    }
+}
+
 // MARK: - Presentation hints
 
 enum TemplateText {

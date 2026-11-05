@@ -168,6 +168,30 @@ enum TemplateFillChecks {
         runner.check("API key looks sensitive", ProfileFact.looksSensitive("OpenAI API key"))
         runner.check("keyboard layout does not", !ProfileFact.looksSensitive("Keyboard layout"))
 
+        // ── What ⌘↩ edits ───────────────────────────────────────────────────
+        let oldResult = scpFilled
+        let newEmail = "Dear [Recipient Name],\nPlease find attached.\n[Your Name]"
+        runner.check("typed text in the field is edited, not the old clipboard",
+                     EditSource.choose(typed: "Hi [Name], see you at 5", clipboard: oldResult, highlighted: nil),
+                     equals: EditSource.Choice(text: "Hi [Name], see you at 5", title: "Typed text"))
+        runner.check("pasted text keeps its line breaks (taken from the clipboard)",
+                     EditSource.choose(typed: "Dear [Recipient Name], Please find attached. [Your Name]",
+                                       clipboard: newEmail, highlighted: nil),
+                     equals: EditSource.Choice(text: newEmail, title: "Pasted text"))
+        runner.check("a short search edits the saved text it found",
+                     EditSource.choose(typed: "leave email", clipboard: oldResult,
+                                       highlighted: (title: "Leave email", body: "Dear Sir, …")),
+                     equals: EditSource.Choice(text: "Dear Sir, …", title: "Leave email"))
+        runner.check("long typed text wins over a highlighted saved text",
+                     EditSource.choose(typed: String(repeating: "word ", count: 12), clipboard: nil,
+                                       highlighted: (title: "Leave email", body: "Dear Sir, …"))?.title ?? "nil",
+                     equals: "Typed text")
+        runner.check("an empty field edits the clipboard",
+                     EditSource.choose(typed: "  ", clipboard: newEmail, highlighted: nil)?.title ?? "nil",
+                     equals: "Clipboard")
+        runner.check("nothing anywhere → nothing to edit",
+                     EditSource.choose(typed: "", clipboard: nil, highlighted: nil) == nil)
+
         runner.check("commands read as code", TemplateText.looksLikeCode(scpTemplate))
         runner.check("an email does not", !TemplateText.looksLikeCode("Dear Professor,\n\nI am writing to ask about the deadline.\n\nRegards,\nPrathamesh"))
 

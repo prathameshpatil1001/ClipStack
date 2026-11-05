@@ -401,16 +401,23 @@ final class SpotlightSearchPanelController: NSObject, NSWindowDelegate {
 
     // MARK: AI edit mode
 
-    /// ⌘↩ — edit the highlighted saved text, or else whatever is on the clipboard.
+    /// ⌘↩ — edit what is in the field (pasted or typed), a saved text found by
+    /// a short search, or, with an empty field, the clipboard. See EditSource.
     private func beginEditing() {
-        if viewModel.hasQuery, let item = viewModel.selectedItem, case .snippet(let snippet) = item {
-            viewModel.beginEditing(snippet.body, title: snippet.displayTitle)
-        } else if let text = clipboard.readString(),
-                  !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            viewModel.beginEditing(text, title: "Clipboard")
-        } else {
-            onHUD?("Copy some text first, then ⌘↩ to edit it", "doc.on.clipboard")
+        var highlighted: (title: String, body: String)?
+        if viewModel.hasQuery, case .snippet(let snippet)? = viewModel.selectedItem {
+            highlighted = (snippet.displayTitle, snippet.body)
         }
+
+        guard let choice = EditSource.choose(
+            typed: viewModel.query,
+            clipboard: clipboard.readString(),
+            highlighted: highlighted
+        ) else {
+            onHUD?("Paste or type some text, then ⌘↩ to edit it", "doc.on.clipboard")
+            return
+        }
+        viewModel.beginEditing(choice.text, title: choice.title)
     }
 
     /// Keys while editing. ↩ sends the instruction, ⌥↩ Quick fill, ⌘↩ pastes
@@ -649,7 +656,7 @@ struct SpotlightSearchView: View {
                 .font(.system(size: 20, weight: .regular))
                 .foregroundStyle(.secondary)
 
-            TextField("Search, or ⌘↩ to edit the clipboard", text: $viewModel.query)
+            TextField("Search — or paste text and ⌘↩ to edit it", text: $viewModel.query)
                 .textFieldStyle(.plain)
                 .font(.system(size: 22, weight: .regular))
                 .focused($isFieldFocused)

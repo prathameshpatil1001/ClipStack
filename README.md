@@ -265,8 +265,10 @@ Details are stored only on this Mac (`~/Library/Application Support/ClipStack/Pr
 in iCloud. Details marked 🔒 (a PRN, a token) keep their value in the **Keychain** instead, and
 are hidden in the list until you click the eye.
 
-**Edit mode.** Copy something with blanks in it, press <kbd>⌥Space</kbd>, then <kbd>⌘↩</kbd> (or
-highlight a saved text first to edit that). The field now takes instructions:
+**Edit mode.** Press <kbd>⌥Space</kbd>, paste (or type) the text with blanks in it, then press
+<kbd>⌘↩</kbd>. What is in the field is what gets edited; a short search that has a saved text
+highlighted edits that saved text instead; and with the field empty, ⌘↩ edits whatever is on the
+clipboard. The field then takes instructions:
 
 | Key | Does |
 |---|---|

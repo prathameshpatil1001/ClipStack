@@ -19,8 +19,9 @@ and this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
   only if every line is used exactly once. Complex captures are previewed
   first, with the text as read one click away; ⌥ on release gives raw text.
   Needs macOS 14 and Screen Recording.
-- **AI edit mode in ⌥Space (⌘↩).** Edit the clipboard, or a highlighted saved
-  text, one instruction at a time: "fill in my details", "add my PRN at the
+- **AI edit mode in ⌥Space (⌘↩).** Edit text pasted or typed into the field,
+  a saved text found by a short search, or (with the field empty) the
+  clipboard, one instruction at a time: "fill in my details", "add my PRN at the
   end". Each step is applied as exact edits, never a rewrite. Anything that
   doesn't match the text exactly is refused, everything else is copied through
   unchanged, and the card highlights what changed. Every result goes straight

@@ -170,6 +170,30 @@ enum TextLayoutChecks {
         runner.check("the model sees numbered, positioned lines",
                      prompt.contains("1. x=0 y=0") && prompt.contains("2. x=93") && prompt.contains("Fastest animal?"))
 
+        // ── Tables and titles from macOS 26 document recognition ───────────
+        let page = [
+            line("Results", x: 0, y: 0, w: 120),
+            line("Name", x: 0, y: 50, w: 60),
+            line("Score", x: 120, y: 50, w: 60),
+            line("Asha", x: 0, y: 74, w: 60),
+            line("9", x: 120, y: 74, w: 20),
+            line("Well done, everyone.", x: 0, y: 140, w: 200),
+        ]
+        let found = DetectedTable(minX: 0, minY: 45, width: 200, height: 55, rows: [["Name", "Score"], ["Asha", "9"]])
+        var titled = page
+        titled[0].isTitle = true
+        let tableLayout = TextLayoutEngine.layout(titled, tables: [found], options: LayoutOptions())
+        runner.check("a recognised table goes in where it sits, its lines not repeated",
+                     LayoutRenderer.text(tableLayout.blocks, style: .plain),
+                     equals: "Results\n\nName\tScore\nAsha\t9\n\nWell done, everyone.")
+        runner.check("a line recognised as a title is a heading",
+                     tableLayout.blocks.first?.kind == .heading)
+        runner.check("a recognised table counts as complex", tableLayout.isComplex)
+        runner.check("a one-row “table” is ignored",
+                     TextLayoutEngine.layout(page, tables: [DetectedTable(minX: 0, minY: 45, width: 200, height: 20,
+                                                                          rows: [["Name", "Score"]])],
+                                             options: LayoutOptions()) == TextLayoutEngine.layout(page))
+
         // ── Spotting a bullet in pixels ────────────────────────────────────
         func strip(background: UInt8, ink: UInt8, width: Int = 24, height: Int = 20,
                    mark: (x: ClosedRange<Int>, y: ClosedRange<Int>)?) -> [UInt8] {

@@ -237,6 +237,13 @@ Plain OCR gives you rows of text. ClipStack rebuilds the layout from where each 
   running text), each column is read **down**, left first. Plain OCR interleaves those.
 - **Headings** and **tables** (tab-separated in plain text, a table in Markdown and in Notes/Docs).
 
+On **macOS 26** the capture is read with Apple's **document recognition**, which understands lists,
+tables and titles itself: tables come out cell by cell even without clear gaps between columns,
+a list item's marker is applied to its first line (a bullet the pixels didn't show, or a `1.` the
+line's text left out), and title lines become headings. Columns, nesting and paragraphs are still
+worked out by the rules above. It can be turned off in Settings ▸ Capture; older macOS uses line
+recognition.
+
 **Smart** formatting (the default) also asks Apple's on-device model to settle the reading order
 of captures with columns or side-by-side text. It is shown only numbered lines and their positions,
 and may only answer with an order and a kind for each group of lines — never text — and its answer

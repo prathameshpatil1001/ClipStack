@@ -200,6 +200,12 @@ struct SettingsView: View {
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
 
+                Toggle("Use document recognition", isOn: $preferences.captureUsesDocumentRecognition)
+                Text(documentRecognitionHelp)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+
                 Picker("Output", selection: $preferences.captureOutputStyle) {
                     ForEach(LayoutRenderer.Style.allCases) { style in
                         Text(style.label).tag(style)
@@ -242,6 +248,13 @@ struct SettingsView: View {
             }
         }
         .formStyle(.grouped)
+    }
+
+    private var documentRecognitionHelp: String {
+        if #available(macOS 26, *) {
+            return "macOS 26 reads lists, tables and titles as such — tables come out cell by cell even without clear gaps between columns. Off: line-by-line recognition only."
+        }
+        return "Needs macOS 26. Until then, captures use line-by-line recognition and the layout rules."
     }
 
     private var captureFormattingHelp: String {

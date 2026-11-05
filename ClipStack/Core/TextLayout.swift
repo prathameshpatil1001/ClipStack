@@ -41,11 +41,40 @@ nonisolated struct OCRLine: Hashable {
     /// A bullet-like mark was seen in the image just left of the text, which
     /// recognition itself often drops or misreads.
     var hasBulletMark: Bool = false
+    /// Recognition marked it as a title (macOS 26 document recognition).
+    var isTitle: Bool = false
 
     var maxX: Double { minX + width }
     var maxY: Double { minY + height }
     var midX: Double { minX + width / 2 }
     var midY: Double { minY + height / 2 }
+}
+
+/// A table recognition found as a table, positioned like `OCRLine`.
+nonisolated struct DetectedTable: Hashable {
+    var minX: Double
+    var minY: Double
+    var width: Double
+    var height: Double
+    /// Cell text, row by row; every row as wide as the widest.
+    var rows: [[String]]
+
+    var maxX: Double { minX + width }
+    var maxY: Double { minY + height }
+
+    /// Whether a recognised line is part of this table.
+    func contains(_ line: OCRLine) -> Bool {
+        line.midX >= minX - 2 && line.midX <= maxX + 2
+            && line.midY >= minY - 2 && line.midY <= maxY + 2
+    }
+}
+
+/// Everything read from one capture.
+nonisolated struct RecognizedPage {
+    var lines: [OCRLine]
+    var tables: [DetectedTable]
+    /// Read with macOS 26 document recognition rather than line recognition.
+    var usedDocumentRecognition: Bool
 }
 
 struct LayoutOptions: Equatable {
@@ -226,6 +255,46 @@ enum TextLayoutEngine {
         case table([[String]])
     }
 
+    /// With tables that recognition already found (macOS 26 document
+    /// recognition): their lines are taken out of the flow and the tables put
+    /// back, cell by cell, where they sit; everything else is laid out by the
+    /// rules as usual.
+    static func layout(_ input: [OCRLine], tables: [DetectedTable], options: LayoutOptions) -> TextLayout {
+        let usable = tables
+            .filter { $0.rows.count >= 2 && ($0.rows.map(\.count).max() ?? 0) >= 2 }
+            .sorted { $0.minY < $1.minY }
+        guard !usable.isEmpty else { return layout(input, options: options) }
+
+        var remaining = input.filter { line in !usable.contains { $0.contains(line) } }
+        var blocks: [LayoutBlock] = []
+        var newspaperRuns = 0
+        var sideBySideRows = 0
+
+        func add(_ more: [LayoutBlock]) {
+            var more = more
+            if !blocks.isEmpty, !more.isEmpty { more[0].startsAfterGap = true }
+            blocks.append(contentsOf: more)
+        }
+
+        for table in usable {
+            let above = remaining.filter { $0.midY < table.minY }
+            remaining.removeAll { $0.midY < table.minY }
+            let part = layout(above, options: options)
+            add(part.blocks)
+            newspaperRuns += part.newspaperColumnRuns
+            sideBySideRows += part.sideBySideRows
+
+            add(table.rows.map { LayoutBlock(kind: .tableRow, cells: $0) })
+            sideBySideRows += table.rows.count
+        }
+        let rest = layout(remaining, options: options)
+        add(rest.blocks)
+        newspaperRuns += rest.newspaperColumnRuns
+        sideBySideRows += rest.sideBySideRows
+
+        return TextLayout(blocks: blocks, newspaperColumnRuns: newspaperRuns, sideBySideRows: sideBySideRows)
+    }
+
     /// With the default options. (An overload rather than a default argument:
     /// default arguments are evaluated off the main actor, where the app's
     /// `LayoutOptions()` may not be called.)
@@ -375,7 +444,8 @@ enum TextLayoutEngine {
         for line in lines {
             let marker = ListMarker.parse(line.text, hasBulletMark: line.hasBulletMark, fixMisread: options.fixMisreadBullets)
             let indentLevel = min(4, max(0, Int(((line.minX - left) / h + 0.3) / 1.6)))
-            let isHeading = marker == nil && line.height >= 1.35 * h && line.text.count <= 80
+            let isHeading = marker == nil
+                && ((line.height >= 1.35 * h && line.text.count <= 80) || (line.isTitle && line.text.count <= 120))
             let gap = previous.map { line.minY - $0.maxY } ?? 0
 
             // Does this line carry on the block before it?

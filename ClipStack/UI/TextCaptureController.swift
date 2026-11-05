@@ -30,6 +30,8 @@ struct CaptureResult {
     var lineCount: Int
     /// Format Stack's result rather than a screen capture.
     var isStack = false
+    /// Read with macOS 26 document recognition.
+    var usedDocumentRecognition = false
 
     var text: String {
         guard let layout else { return rawText }
@@ -49,6 +51,7 @@ struct CaptureResult {
         if layout.newspaperColumnRuns > 0 { parts.append("columns read one after another") }
         if layout.sideBySideRows > 0 { parts.append("\(layout.sideBySideRows) side-by-side rows") }
         if layout.listItemCount > 0 { parts.append("\(layout.listItemCount) list items") }
+        if usedDocumentRecognition { parts.append("read with document recognition") }
         if arrangedByAI {
             parts.append(isStack ? "lost structure restored with Apple Intelligence" : "order checked with Apple Intelligence")
         }
@@ -58,21 +61,24 @@ struct CaptureResult {
     /// Recognised lines → the result, using the on-device model only where the
     /// layout rules had to make a judgement about reading order.
     static func make(
-        lines: [OCRLine],
+        page: RecognizedPage,
         raw: Bool,
         formatting: CaptureFormatting,
         options: LayoutOptions,
         style: LayoutRenderer.Style
     ) async -> CaptureResult {
+        let lines = page.lines
         let rawText = TextLayoutEngine.rawText(lines)
         guard !raw, formatting != .off else {
             return CaptureResult(rawText: rawText, layout: nil, arrangedByAI: false, style: style, lineCount: lines.count)
         }
 
-        var layout = TextLayoutEngine.layout(lines, options: options)
+        var layout = TextLayoutEngine.layout(lines, tables: page.tables, options: options)
         var arrangedByAI = false
 
-        if formatting == .smart, layout.isComplex, OnDeviceAI.isAvailable {
+        // Tables found by document recognition are already structured; the
+        // model is only asked when the rules alone judged the reading order.
+        if formatting == .smart, layout.isComplex, page.tables.isEmpty, OnDeviceAI.isAvailable {
             let segments = TextLayoutEngine.rows(lines).flatMap { $0 }
             if let proposal = try? await OnDeviceAI.arrangeLayout(
                 prompt: LayoutArrangement.prompt(for: segments),
@@ -84,7 +90,14 @@ struct CaptureResult {
             }
         }
 
-        return CaptureResult(rawText: rawText, layout: layout, arrangedByAI: arrangedByAI, style: style, lineCount: lines.count)
+        return CaptureResult(
+            rawText: rawText,
+            layout: layout,
+            arrangedByAI: arrangedByAI,
+            style: style,
+            lineCount: lines.count,
+            usedDocumentRecognition: page.usedDocumentRecognition
+        )
     }
 }
 
@@ -159,26 +172,27 @@ final class TextCaptureController {
         let formatting = preferences.captureFormatting
         let options = preferences.captureLayoutOptions
         let style = preferences.captureOutputStyle
+        let preferDocument = preferences.captureUsesDocumentRecognition && !raw && formatting != .off
 
         Task { @MainActor in
             defer { isBusy = false }
 
-            let lines: [OCRLine]
+            let page: RecognizedPage
             do {
-                lines = try await Task.detached(priority: .userInitiated) {
-                    try ScreenTextRecognizer.recognize(image)
+                page = try await Task.detached(priority: .userInitiated) {
+                    try await ScreenTextRecognizer.recognizePage(image, preferDocument: preferDocument)
                 }.value
             } catch {
                 onHUD?("Couldn't read text: \(error.localizedDescription)", "exclamationmark.triangle.fill")
                 return
             }
-            guard !lines.isEmpty else {
+            guard !page.lines.isEmpty else {
                 onHUD?("No text found there", "text.viewfinder")
                 return
             }
 
             let result = await CaptureResult.make(
-                lines: lines,
+                page: page,
                 raw: raw,
                 formatting: formatting,
                 options: options,

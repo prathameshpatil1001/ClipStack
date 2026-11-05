@@ -108,6 +108,7 @@ final class Preferences: ObservableObject {
         static let captureFixBullets  = "captureFixMisreadBullets"
         static let captureHyphens     = "captureJoinHyphenatedWords"
         static let captureJoinLines   = "captureJoinWrappedLines"
+        static let captureDocument    = "captureUsesDocumentRecognition"
     }
 
     init(defaults: UserDefaults = .standard) {
@@ -136,6 +137,7 @@ final class Preferences: ObservableObject {
         captureFixMisreadBullets = defaults.object(forKey: Key.captureFixBullets) as? Bool ?? true
         captureJoinHyphenatedWords = defaults.object(forKey: Key.captureHyphens) as? Bool ?? true
         captureJoinWrappedLines = defaults.object(forKey: Key.captureJoinLines) as? Bool ?? true
+        captureUsesDocumentRecognition = defaults.object(forKey: Key.captureDocument) as? Bool ?? true
 
         pasteStackHotKey = Self.decode(defaults, Key.hotKeyPasteStack) ?? .defaultPasteStack
         resetStackHotKey = Self.decode(defaults, Key.hotKeyResetStack) ?? .defaultResetStack
@@ -231,6 +233,12 @@ final class Preferences: ObservableObject {
 
     @Published var captureJoinWrappedLines: Bool {
         didSet { defaults.set(captureJoinWrappedLines, forKey: Key.captureJoinLines) }
+    }
+
+    /// macOS 26 document recognition, which finds lists, tables and titles
+    /// itself. Ignored on older macOS.
+    @Published var captureUsesDocumentRecognition: Bool {
+        didSet { defaults.set(captureUsesDocumentRecognition, forKey: Key.captureDocument) }
     }
 
     var captureLayoutOptions: LayoutOptions {

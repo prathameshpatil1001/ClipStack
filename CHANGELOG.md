@@ -8,6 +8,13 @@ and this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 ## [Unreleased]
 
 ### Added
+- **macOS 26 document recognition for screen capture.** On macOS 26, captures
+  are read with Vision's `RecognizeDocumentsRequest`: tables come back cell by
+  cell (spanning cells once, never repeated) and go into the layout where they
+  sit; list items' markers are applied to their first lines, nested lists
+  included; titles become headings. Columns, nesting and paragraphs still go
+  through the layout rules. Falls back to line recognition elsewhere or when
+  nothing is found; Settings ▸ Capture ▸ "Use document recognition".
 - **Format Stack (⌃⌥⌘V).** Paste the whole stack as one structured document:
   captures keep their layout, copied text is read by its own structure
   (markers, indentation, Markdown headings and tables, tab-separated rows;
